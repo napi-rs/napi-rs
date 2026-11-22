@@ -111,6 +111,16 @@ export abstract class BaseBuildCommand extends Command {
     description: 'Whether strip the library to achieve the minimum file size',
   })
 
+  compress?: boolean = Option.Boolean('--compress', {
+    description:
+      'Build a self-loading `.node`; addons must not need sibling native libraries.',
+  })
+
+  compressLevel?: string = Option.String('--compress-level', {
+    description:
+      'zstd level for --compress (1-22; default: 16 below 8 MiB, 22 otherwise).',
+  })
+
   release?: boolean = Option.Boolean('--release,-r', {
     description: 'Build in release mode',
   })
@@ -194,6 +204,8 @@ export abstract class BaseBuildCommand extends Command {
       esm: this.esm,
       commonjs: this.commonjs,
       strip: this.strip,
+      compress: this.compress,
+      compressLevel: this.compressLevel,
       release: this.release,
       verbose: this.verbose,
       bin: this.bin,
@@ -301,6 +313,14 @@ export interface BuildOptions {
    * Whether strip the library to achieve the minimum file size
    */
   strip?: boolean
+  /**
+   * Build a self-loading `.node` with an embedded zstd payload. The stub decodes to a cache; on Btrfs it also replaces the carrier with the decoded addon using Btrfs compression.
+   */
+  compress?: boolean
+  /**
+   * zstd level for --compress (1-22; default: 16 below 8 MiB, 22 otherwise).
+   */
+  compressLevel?: string
   /**
    * Build in release mode
    */

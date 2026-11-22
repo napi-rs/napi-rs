@@ -251,6 +251,18 @@ const BUILD_OPTIONS: CommandSchema = {
       short: ['s'],
     },
     {
+      name: 'compress',
+      type: 'boolean',
+      description:
+        'Build a self-loading `.node` with an embedded zstd payload.',
+    },
+    {
+      name: 'compressLevel',
+      type: 'string',
+      description:
+        'zstd level for --compress (1-22). By default, small addons use level 16 and addons of 8 MiB or more use level 22.',
+    },
+    {
       name: 'release',
       type: 'boolean',
       description: 'Build in release mode',

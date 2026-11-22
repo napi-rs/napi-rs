@@ -69,6 +69,7 @@ import {
   readdirAsync,
   type CargoWorkspaceMetadata,
 } from '../utils/index.js'
+import { compressionAssetPaths } from '../utils/paths.js'
 
 import {
   assertBindingTargetIdentFree,
@@ -3812,9 +3813,38 @@ class Builder {
           }
         }
       }
+      let artifactPath = dest
+      const compress = this.options.compress ?? this.config.compress
+      if (compress && dest.endsWith('.node')) {
+        const { compressNodeArtifact } = await import('./compress.js')
+        const level =
+          this.options.compressLevel !== undefined
+            ? Number(this.options.compressLevel)
+            : this.config.compressLevel
+        const { producer, stub } = compressionAssetPaths(
+          getSystemDefaultTarget().triple,
+          this.cargoTriple,
+        )
+        const {
+          path: compressedPath,
+          rawSize,
+          totalSize,
+        } = await compressNodeArtifact(dest, {
+          level,
+          napiCompressPath: producer,
+          stubPath: stub,
+        })
+        artifactPath = compressedPath
+        debug(
+          'Compressed artifact (zstd) in place: [%i] (%i -> %i bytes)',
+          compressedPath,
+          rawSize,
+          totalSize,
+        )
+      }
       this.outputs.push({
         kind: dest.endsWith('.node') ? 'node' : isWasm ? 'wasm' : 'exe',
-        path: dest,
+        path: artifactPath,
       })
       return wasmBinaryName ? join(this.outputDir, wasmBinaryName) : null
     } catch (e) {

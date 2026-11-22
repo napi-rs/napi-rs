@@ -19,6 +19,135 @@ on:
   pull_request:
 
 jobs:
+  native-addon-producers:
+    if: "startsWith(github.event.head_commit.message, 'chore(release): publish')"
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
+          - os: macos-latest
+          - os: windows-latest
+          - os: windows-11-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build producer
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            node cli/build/producer.mjs aarch64-apple-darwin
+            node cli/build/producer.mjs x86_64-apple-darwin
+          else
+            node cli/build/producer.mjs
+          fi
+      - name: Install ziglang
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.13.0
+      - name: Install cargo-zigbuild
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Build Linux musl producers
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        env:
+          ZIGBUILD: '1'
+        run: |
+          node cli/build/producer.mjs x86_64-unknown-linux-musl
+          node cli/build/producer.mjs aarch64-unknown-linux-musl
+      - uses: actions/upload-artifact@v7
+        with:
+          name: producer-${{ runner.os }}-${{ runner.arch }}
+          path: cli/bin/napi-compress-*
+          if-no-files-found: error
+
+  native-addon-stubs:
+    if: "startsWith(github.event.head_commit.message, 'chore(release): publish')"
+    name: native addon stubs - ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Apple + Linux
+            os: ubuntu-latest
+            zigbuild: true
+            targets: >-
+              aarch64-apple-darwin x86_64-apple-darwin
+              aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
+              aarch64-unknown-linux-musl x86_64-unknown-linux-musl
+          - name: Windows
+            os: windows-latest
+            zigbuild: false
+            targets: x86_64-pc-windows-msvc aarch64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install ziglang
+        if: matrix.zigbuild
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.13.0
+      - name: Install cargo-zigbuild
+        if: matrix.zigbuild
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Install macOS SDK
+        if: matrix.zigbuild
+        run: |
+          curl -fsSL "https://github.com/phracker/MacOSX-SDKs/releases/download/11.3/MacOSX11.3.sdk.tar.xz" -o /tmp/MacOSX11.3.sdk.tar.xz
+          echo "cd4f08a75577145b8f05245a2975f7c81401d75e9535dcffbb879ee1deefcbf4  /tmp/MacOSX11.3.sdk.tar.xz" | sha256sum -c
+          tar -J -x -f /tmp/MacOSX11.3.sdk.tar.xz -C /opt
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: stubs-${{ matrix.os }}-${{ hashFiles('crates/napi-native-addon/Cargo.toml') }}
+          restore-keys: |
+            stubs-${{ matrix.os }}-
+      - name: Build stubs
+        shell: bash
+        env:
+          ZIGBUILD: ${{ matrix.zigbuild && '1' || '' }}
+          SDKROOT: /opt/MacOSX11.3.sdk
+          RUSTFLAGS: ${{ matrix.zigbuild && '-C target-feature=-crt-static' || '' }}
+        run: |
+          set -euo pipefail
+          for target in ${{ matrix.targets }}; do
+            echo "::group::$target"
+            rustup target add "$target"
+            node cli/build/stubs.mjs "$target"
+            echo "::endgroup::"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: stubs-${{ runner.os }}
+          path: cli/stubs/*.node
+          if-no-files-found: error
+
   # Supply-chain gate: audit every lifecycle script in the lockfile before any
   # other job runs. Every job below `needs: audit`, so nothing installs deps or
   # runs until the audit is clean. On a clean audit the rest of the pipeline
@@ -67,6 +196,103 @@ jobs:
           path: |
             .script-jail.lock.yml
             .script-jail.yml
+
+  native-addon-test:
+    name: native addon tests - ${{ matrix.os }}
+    needs: audit
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.os }}-napi-native-addon-${{ hashFiles('crates/napi-native-addon/Cargo.toml') }}
+          restore-keys: |
+            ${{ matrix.os }}-napi-native-addon-
+      - name: Clippy
+        run: cargo clippy -p napi-native-addon -p napi-compress --all-targets -- -D warnings
+      - name: Test
+        run: |
+          cargo test -p napi-native-addon
+          cargo test -p napi-compress
+          cargo check -p napi-native-addon-stub
+      - name: Check musl build
+        if: matrix.os == 'ubuntu-24.04'
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          sudo apt-get update && sudo apt-get install -y musl-tools
+          cargo check -p napi-native-addon --target x86_64-unknown-linux-musl
+
+  native-addon-btrfs:
+    name: native addon btrfs runtime
+    needs: audit
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install btrfs-progs
+        run: sudo apt-get update && sudo apt-get install -y btrfs-progs
+      - name: Provision btrfs and run the test
+        run: |
+          sudo modprobe btrfs || true
+          grep -qw btrfs /proc/filesystems
+
+          truncate -s 400M /tmp/btrfs.img
+          mkfs.btrfs -q /tmp/btrfs.img
+          sudo mkdir -p /mnt/bt
+          sudo mount -o loop /tmp/btrfs.img /mnt/bt
+          sudo chmod 1777 /mnt/bt
+
+          truncate -s 200M /tmp/btrfs-ro.img
+          mkfs.btrfs -q /tmp/btrfs-ro.img
+          sudo mkdir -p /mnt/bt-ro
+          sudo mount -o loop /tmp/btrfs-ro.img /mnt/bt-ro
+          head -c 1048576 /dev/zero | sudo tee /mnt/bt-ro/ro.node >/dev/null
+          sync
+          sudo mount -o remount,ro /mnt/bt-ro
+
+          export NAPI_NATIVE_ADDON_BTRFS_DIR=/mnt/bt
+          export NAPI_NATIVE_ADDON_BTRFS_RO_DIR=/mnt/bt-ro
+          cargo test -p napi-native-addon --test btrfs -- --nocapture --test-threads=1
+
+  native-addon-e2e:
+    name: compressed addon - ${{ matrix.os }}
+    needs: audit
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: yarn install --immutable
+      - name: Build and self-load compressed addon
+        shell: bash
+        run: node --import @oxc-node/core/register ../node_modules/ava/entrypoints/cli.js e2e/cli.spec.ts --match '*compress*'
+        working-directory: cli
 
   lint:
     name: Lint SourceCode
@@ -1420,6 +1646,8 @@ jobs:
     needs:
       - lint
       - build_binary_crate
+      - native-addon-producers
+      - native-addon-stubs
     if: "startsWith(github.event.head_commit.message, 'chore(release): publish')"
     steps:
       - uses: actions/checkout@v7
@@ -1427,6 +1655,27 @@ jobs:
         with:
           node-version: 24
           cache: 'yarn'
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: producer-*
+          path: cli/bin
+          merge-multiple: true
+      - name: Restore producer executable bits
+        run: chmod +x cli/bin/napi-compress-*
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: stubs-*
+          path: cli/stubs
+          merge-multiple: true
+      - name: Verify native addon stubs
+        run: |
+          for target in \
+            aarch64-apple-darwin x86_64-apple-darwin \
+            aarch64-pc-windows-msvc x86_64-pc-windows-msvc \
+            aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu \
+            aarch64-unknown-linux-musl x86_64-unknown-linux-musl; do
+            test -s "cli/stubs/$target.node"
+          done
       - name: Publish
         run: |
           yarn install --mode=skip-build
@@ -1465,6 +1714,9 @@ jobs:
       - test-node-wasi
       - wasi-sdk
       - test-latest-bun
+      - native-addon-test
+      - native-addon-btrfs
+      - native-addon-e2e
     steps:
       # `skipped` is included because a failed `audit` (or a failed
       # build_musl/build_for_test_in_docker upstream of test_in_docker) leaves
