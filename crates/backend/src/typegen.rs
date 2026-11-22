@@ -102,6 +102,17 @@ pub(crate) fn ts_type_or_infer(
 /// Records the dotted names hand-written TS text spells, as a superset of
 /// the type references it holds.
 pub(crate) fn record_ts_override(ts_type: &str) {
+  // TypeScript allows spaces around the dots of a qualified name
+  // (`models . Config`); the CLI reads it as `models.Config`.
+  let mut joined = String::with_capacity(ts_type.len());
+  let mut rest = ts_type;
+  while let Some(dot) = rest.find('.') {
+    joined.push_str(rest[..dot].trim_end());
+    joined.push('.');
+    rest = rest[dot + 1..].trim_start();
+  }
+  joined.push_str(rest);
+  let ts_type = joined.as_str();
   let is_name_char = |c: char| c == '_' || c == '$' || c.is_alphanumeric();
   let mut names = Vec::new();
   let mut chars = ts_type.char_indices().peekable();
@@ -1696,6 +1707,7 @@ mod tests {
   fn ts_override_names_are_the_dotted_names_of_the_text() {
     let ((), type_refs) = super::with_type_refs(|| {
       super::record_ts_override("x: a.b.Input<T> | 'lit-1' | Map<string, $Y_2>, ...rest: 9e3[]");
+      super::record_ts_override("y: models . Config, z: [A, ...B]");
     });
     assert_eq!(
       type_refs.ts_override_names,
@@ -1707,7 +1719,12 @@ mod tests {
         "Map",
         "string",
         "$Y_2",
-        "rest"
+        "rest",
+        "y",
+        "models.Config",
+        "z",
+        "A",
+        "B"
       ]
       .map(str::to_owned)
       .to_vec()
