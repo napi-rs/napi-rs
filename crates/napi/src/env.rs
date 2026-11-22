@@ -1817,6 +1817,7 @@ pub(crate) unsafe extern "C" fn trampoline<
   raw_env: sys::napi_env,
   cb_info: sys::napi_callback_info,
 ) -> sys::napi_value {
+  let _napi_native_borrow_barrier = crate::bindgen_runtime::NativeBorrowBarrier::new();
   // Fast path for 4 arguments or less.
   let mut argc = 4;
   let mut raw_args = Vec::with_capacity(4);
@@ -1888,6 +1889,7 @@ pub(crate) unsafe extern "C" fn trampoline_setter<
 ) -> sys::napi_value {
   use crate::bindgen_runtime::This;
 
+  let _napi_native_borrow_barrier = crate::bindgen_runtime::NativeBorrowBarrier::new();
   let (raw_args, raw_this, closure_data_ptr) = {
     let mut argc = 1;
     let mut raw_args = vec![ptr::null_mut(); 1];
@@ -1946,6 +1948,7 @@ pub(crate) unsafe extern "C" fn trampoline_getter<
   raw_env: sys::napi_env,
   cb_info: sys::napi_callback_info,
 ) -> sys::napi_value {
+  let _napi_native_borrow_barrier = crate::bindgen_runtime::NativeBorrowBarrier::new();
   let (raw_this, closure_data_ptr) = {
     let mut raw_this = ptr::null_mut();
     let mut data_ptr = ptr::null_mut();

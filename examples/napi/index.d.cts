@@ -692,6 +692,8 @@ export interface A {
 
 export declare function acceptArraybuffer(fixture: ArrayBuffer): bigint
 
+export declare function acceptPromiseExternal(p: Promise<ExternalObject<number>>): Promise<number>
+
 export declare function acceptSlice(fixture: Uint8Array): bigint
 
 export declare function acceptStream(stream: ReadableStream<Uint8Array>): Promise<Buffer>
@@ -723,6 +725,26 @@ export interface AliasedStruct {
   a: ALIAS
   b: number
 }
+
+export declare function aliasEitherMutExternal(a: ExternalObject<number> | number, b: ExternalObject<number>): number
+
+export declare function aliasExternalRefAndMut(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasExternalRefAndRef(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasExternalRefPair(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasMutMutExternal(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasMutRefExternal(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasOptionalMutExternal(a?: ExternalObject<number> | undefined | null, b?: ExternalObject<number> | undefined | null): number
+
+export declare function aliasRefMutExternal(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasRefRefExternal(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasVecMutExternal(items: Array<ExternalObject<number>>): number
 
 export interface AllOptionalObject {
   name?: string
@@ -1173,11 +1195,15 @@ export declare function createBigIntI64(): bigint
 
 export declare function createBufferSliceFromCopiedData(): Buffer
 
+export declare function createClosureReadingExternal(): (arg: unknown) => number
+
 /**
  * Makes a deferred, then fails before the promise is handed out: the early `?` drops the
  * deferred unsettled. Throws, and must not leave a rejection behind.
  */
 export declare function createDeferredThenFail(): void
+
+export declare function createDuplicateExternalRef(size: number): number
 
 export declare function createErrorFromRetainedValue(value: unknown): object
 
@@ -1530,6 +1556,8 @@ export declare const enum Empty {}
 export declare function enumToI32(e: CustomNumEnum): number
 
 export declare function errorMessageContainsNullByte(msg: string): void
+
+export declare function escapeExternalFromObject(obj: object): number
 
 export declare function esmResolve(next: () => Promise<undefined>): Promise<undefined>
 
@@ -2033,6 +2061,10 @@ export declare function readBorrowedCacheWithReentry(cache: BorrowedCache, cb: (
  */
 export declare function readBorrowedCacheWithSignal(cache: BorrowedCache, gate: number, signal: AbortSignal): Promise<number>
 
+export declare function readBorrowedExternalAsyncFn(ext: ExternalObject<number>, gate: number): Promise<number>
+
+export declare function readBorrowedExternalTask(ext: ExternalObject<number>, gate: number): Promise<number>
+
 /**
  * What `read_then_cancel` and `cancel_pending_read` saw. An error field is unset when
  * that cancel resolved, or holds the error message when it failed.
@@ -2067,6 +2099,8 @@ export declare function readFile(callback: (arg0: Error | undefined, arg1?: stri
 
 export declare function readFileAsync(path: string): Promise<Buffer>
 
+export declare function readOptionalExternalAsyncFn(ext: ExternalObject<string> | undefined | null, gate: number): Promise<string | null>
+
 export declare function readPackageJson(): PackageJson
 
 /**
@@ -2094,6 +2128,12 @@ export declare function receiveObjectWithClassField(object: ObjectFieldClassInst
 export declare function receiveStrictObject(strictObject: StrictObject): void
 
 export declare function receiveString(s: string): string
+
+export declare function reenterDuringExternalArgConversion(items: Array<number>, ext: ExternalObject<number>): number
+
+export declare function reenterExternalCallback(ext: ExternalObject<number>, cb: () => void): number
+
+export declare function reenterMutExternalCallback(ext: ExternalObject<number>, cb: () => void): number
 
 /**
  * Fixed gate for the zero-argument nested callback: it takes no arguments, so the
@@ -2389,6 +2429,8 @@ export declare function tsfnAsyncCall(func: (arg0: number, arg1: number, arg2: n
 export declare function tsfnCallWithCallback(tsfn: ((err: Error | null) => string)): void
 
 export declare function tsfnInEither(pet: Pet): void
+
+export declare function tsfnReturnExternal(func: ((err: Error | null, arg: number) => ExternalObject<number>)): Promise<number>
 
 export declare function tsfnReturnPromise(func: ((err: Error | null, arg: number) => Promise<number>)): Promise<number>
 

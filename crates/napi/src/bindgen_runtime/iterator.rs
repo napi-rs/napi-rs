@@ -366,6 +366,7 @@ extern "C" fn generator_next<'a, T: ScopedGenerator<'a> + 'a>(
   env: sys::napi_env,
   info: sys::napi_callback_info,
 ) -> sys::napi_value {
+  let _napi_native_borrow_barrier = crate::bindgen_runtime::NativeBorrowBarrier::new();
   let mut this = ptr::null_mut();
   let mut argv: [sys::napi_value; 1] = [ptr::null_mut()];
   let mut argc = 1;
@@ -462,6 +463,7 @@ extern "C" fn generator_return<'a, T: ScopedGenerator<'a> + 'a>(
   env: sys::napi_env,
   info: sys::napi_callback_info,
 ) -> sys::napi_value {
+  let _napi_native_borrow_barrier = crate::bindgen_runtime::NativeBorrowBarrier::new();
   let mut this = ptr::null_mut();
   let mut argv: [sys::napi_value; 1] = [ptr::null_mut()];
   let mut argc = 1;
@@ -552,6 +554,7 @@ extern "C" fn generator_throw<'a, T: ScopedGenerator<'a> + 'a>(
   env: sys::napi_env,
   info: sys::napi_callback_info,
 ) -> sys::napi_value {
+  let _napi_native_borrow_barrier = crate::bindgen_runtime::NativeBorrowBarrier::new();
   let mut this = ptr::null_mut();
   let mut argv: [sys::napi_value; 1] = [ptr::null_mut()];
   let mut argc = 1;

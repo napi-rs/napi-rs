@@ -293,6 +293,7 @@ extern "C" fn generator_next<T: AsyncGenerator>(
   env: sys::napi_env,
   info: sys::napi_callback_info,
 ) -> sys::napi_value {
+  let _napi_native_borrow_barrier = crate::bindgen_runtime::NativeBorrowBarrier::new();
   match generator_next_fn::<T>(env, info) {
     Ok(value) => value,
     Err(e) => unsafe {
@@ -365,6 +366,7 @@ extern "C" fn generator_return<T: AsyncGenerator>(
   env: sys::napi_env,
   info: sys::napi_callback_info,
 ) -> sys::napi_value {
+  let _napi_native_borrow_barrier = crate::bindgen_runtime::NativeBorrowBarrier::new();
   let mut this = ptr::null_mut();
   let mut argv: [sys::napi_value; 1] = [ptr::null_mut()];
   let mut argc = 1;
@@ -434,6 +436,7 @@ extern "C" fn generator_throw<T: AsyncGenerator>(
   env: sys::napi_env,
   info: sys::napi_callback_info,
 ) -> sys::napi_value {
+  let _napi_native_borrow_barrier = crate::bindgen_runtime::NativeBorrowBarrier::new();
   let mut this = ptr::null_mut();
   let mut argv: [sys::napi_value; 1] = [ptr::null_mut()];
   let mut argc = 1;

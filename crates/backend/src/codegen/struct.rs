@@ -424,6 +424,7 @@ impl NapiStruct {
         cb: napi::bindgen_prelude::sys::napi_callback_info
       ) -> napi::bindgen_prelude::sys::napi_value {
         #tracing_debug
+        let _napi_native_borrow_barrier = napi::bindgen_prelude::NativeBorrowBarrier::new();
         napi::bindgen_prelude::CallbackInfo::<#fields_len>::new(env, cb, None, false)
           .and_then(|cb| #constructor)
           .unwrap_or_else(|e| {

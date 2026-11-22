@@ -686,6 +686,8 @@ export interface A {
 
 export declare function acceptArraybuffer(fixture: ArrayBuffer): bigint
 
+export declare function acceptPromiseExternal(p: Promise<ExternalObject<number>>): Promise<number>
+
 export declare function acceptSlice(fixture: Uint8Array): bigint
 
 export declare function acceptStream(stream: ReadableStream<Uint8Array>): Promise<import("buffer").Buffer>
@@ -718,6 +720,26 @@ export interface AliasedStruct {
   b: number
 }
 
+export declare function aliasEitherMutExternal(a: ExternalObject<number> | number, b: ExternalObject<number>): number
+
+export declare function aliasExternalRefAndMut(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasExternalRefAndRef(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasExternalRefPair(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasMutMutExternal(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasMutRefExternal(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasOptionalMutExternal(a?: ExternalObject<number> | undefined | null, b?: ExternalObject<number> | undefined | null): number
+
+export declare function aliasRefMutExternal(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasRefRefExternal(a: ExternalObject<number>, b: ExternalObject<number>): number
+
+export declare function aliasVecMutExternal(items: Array<ExternalObject<number>>): number
+
 export interface AllOptionalObject {
   name?: string
   age?: number
@@ -730,6 +752,15 @@ export declare function appendToOsString(s: string): string
 export declare function apply0(ctx: Animal, callback: () => void): void
 
 export declare function apply1(ctx: Animal, callback: (arg: string) => void, name: string): void
+
+/** Applies the stashed property list to `target` after churning handle slots. */
+export declare function applyStashedProperties(target: object): void
+
+/**
+ * Applies the stashed single `Property` after allocating 64 fresh strings in
+ * this callback to overwrite reused V8 handle slots.
+ */
+export declare function applyStashedPropertyValue(target: object): void
 
 export declare function argRefCounters(): ArgRefCounters
 
@@ -1075,6 +1106,12 @@ export declare function classRefsDeletedAtTeardown(): number
 export declare function cleanupReentrantBorrowOrderTestTargets(): number
 
 /**
+ * Clears the stashed properties on the current thread so their retained
+ * `napi_ref`s are released while the environment is live.
+ */
+export declare function clearStashedProperties(): void
+
+/**
  * Open the gate: every task currently waiting — and any queued behind it —
  * passes through.
  */
@@ -1152,11 +1189,15 @@ export declare function createBigIntI64(): bigint
 
 export declare function createBufferSliceFromCopiedData(): import("buffer").Buffer
 
+export declare function createClosureReadingExternal(): (arg: unknown) => number
+
 /**
  * Makes a deferred, then fails before the promise is handed out: the early `?` drops the
  * deferred unsettled. Throws, and must not leave a rejection behind.
  */
 export declare function createDeferredThenFail(): void
+
+export declare function createDuplicateExternalRef(size: number): number
 
 export declare function createErrorFromRetainedValue(value: unknown): object
 
@@ -1509,6 +1550,8 @@ export declare const enum Empty {}
 export declare function enumToI32(e: CustomNumEnum): number
 
 export declare function errorMessageContainsNullByte(msg: string): void
+
+export declare function escapeExternalFromObject(obj: object): number
 
 export declare function esmResolve(next: () => Promise<undefined>): Promise<undefined>
 
@@ -2010,6 +2053,10 @@ export declare function readBorrowedCacheWithReentry(cache: BorrowedCache, cb: (
  */
 export declare function readBorrowedCacheWithSignal(cache: BorrowedCache, gate: number, signal: AbortSignal): Promise<number>
 
+export declare function readBorrowedExternalAsyncFn(ext: ExternalObject<number>, gate: number): Promise<number>
+
+export declare function readBorrowedExternalTask(ext: ExternalObject<number>, gate: number): Promise<number>
+
 /**
  * What `read_then_cancel` and `cancel_pending_read` saw. An error field is unset when
  * that cancel resolved, or holds the error message when it failed.
@@ -2044,6 +2091,8 @@ export declare function readFile(callback: (arg0: Error | undefined, arg1?: stri
 
 export declare function readFileAsync(path: string): Promise<import("buffer").Buffer>
 
+export declare function readOptionalExternalAsyncFn(ext: ExternalObject<string> | undefined | null, gate: number): Promise<string | null>
+
 export declare function readPackageJson(): PackageJson
 
 /**
@@ -2071,6 +2120,12 @@ export declare function receiveObjectWithClassField(object: ObjectFieldClassInst
 export declare function receiveStrictObject(strictObject: StrictObject): void
 
 export declare function receiveString(s: string): string
+
+export declare function reenterDuringExternalArgConversion(items: Array<number>, ext: ExternalObject<number>): number
+
+export declare function reenterExternalCallback(ext: ExternalObject<number>, cb: () => void): number
+
+export declare function reenterMutExternalCallback(ext: ExternalObject<number>, cb: () => void): number
 
 /**
  * Fixed gate for the zero-argument nested callback: it takes no arguments, so the
@@ -2108,6 +2163,12 @@ export declare function returnUndefined(): void
 export declare function returnUndefinedIfInvalid(input: boolean): boolean
 
 export declare function returnUndefinedIfInvalidPromise(input: Promise<boolean>): Promise<boolean>
+
+/**
+ * Clones the stashed single `Property` and reuses it across two objects
+ * (`define_properties`) and two classes (`Env::define_class`).
+ */
+export declare function reuseStashedPropertyOnObjectsAndClasses(): [Record<string, unknown>, Record<string, unknown>, new () => Record<string, unknown>, new () => Record<string, unknown>]
 
 export declare function roundtripStr(s: string): string
 
@@ -2158,6 +2219,39 @@ export declare function stashBufferInThreadLocal(buf: import("buffer").Buffer): 
  * release must no-op (leak), not use-after-free.
  */
 export declare function stashErrorInThreadLocal(value: unknown): void
+
+/**
+ * Stashes properties (primitive value, object value, string key, symbol key)
+ * in a `thread_local!` that is intentionally left populated until worker or
+ * process exit to verify teardown safety.
+ */
+export declare function stashPropertiesUntilExit(obj: unknown, sym: unknown): void
+
+/**
+ * Stashes `Property` descriptors using `with_name` for string and symbol keys,
+ * plus runtime key replacement (`with_name` -> `with_utf8_name` and vice versa).
+ */
+export declare function stashPropertiesWithNames(strKey: unknown, symKey: unknown, strVal: unknown, symVal: unknown): void
+
+/**
+ * Stashes `Property` descriptors built with `with_napi_value` covering all
+ * primitive types as well as objects, functions, and symbols.
+ */
+export declare function stashPropertiesWithNapiValues(obj: unknown, func: unknown, sym: unknown): void
+
+/**
+ * Exact #3697 repro: stashes a `Property` built with `with_value` across
+ * HandleScope boundaries.
+ */
+export declare function stashPropertyValue(secret: unknown): void
+
+/**
+ * Triggers a pending JS exception before `with_value`, stashes the resulting
+ * `Property`, and returns `Err(PendingException)` so JS catches the exception.
+ * Later applying the stashed `Property` must not replay a stale
+ * `PendingException` status after the exception has been cleared.
+ */
+export declare function stashPropertyValueDuringPendingException(secret: unknown): void
 
 export declare function stashTypedArrayInThreadLocal(buf: Uint8Array): void
 
@@ -2322,6 +2416,8 @@ export declare function tsfnAsyncCall(func: (arg0: number, arg1: number, arg2: n
 export declare function tsfnCallWithCallback(tsfn: ((err: Error | null) => string)): void
 
 export declare function tsfnInEither(pet: Pet): void
+
+export declare function tsfnReturnExternal(func: ((err: Error | null, arg: number) => ExternalObject<number>)): Promise<number>
 
 export declare function tsfnReturnPromise(func: ((err: Error | null, arg: number) => Promise<number>)): Promise<number>
 

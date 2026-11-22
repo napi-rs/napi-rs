@@ -68,7 +68,7 @@ pub fn borrow_gate_waiters(id: u32) -> u32 {
     .unwrap_or(0) as u32
 }
 
-fn wait_borrow_gate(id: u32) -> Result<()> {
+pub(crate) fn wait_borrow_gate(id: u32) -> Result<()> {
   let gate = BORROW_GATES
     .lock()
     .unwrap()

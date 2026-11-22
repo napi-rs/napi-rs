@@ -87,6 +87,7 @@ pub unsafe extern "C" fn class_getter_trampoline(
   env: sys::napi_env,
   cb_info: sys::napi_callback_info,
 ) -> sys::napi_value {
+  let _napi_native_borrow_barrier = crate::bindgen_runtime::NativeBorrowBarrier::new();
   let mut this = ptr::null_mut();
   let mut data = ptr::null_mut();
 
@@ -116,6 +117,7 @@ pub unsafe extern "C" fn class_setter_trampoline(
   env: sys::napi_env,
   cb_info: sys::napi_callback_info,
 ) -> sys::napi_value {
+  let _napi_native_borrow_barrier = crate::bindgen_runtime::NativeBorrowBarrier::new();
   let mut argc = 1;
   let mut args = [ptr::null_mut()];
   let mut this = ptr::null_mut();

@@ -917,6 +917,7 @@ unsafe extern "C" fn call_js_cb<
     return;
   }
 
+  let _napi_native_borrow_barrier = crate::bindgen_runtime::NativeBorrowBarrier::new();
   let callback: &mut R = unsafe { Box::leak(Box::from_raw(context.cast())) };
   let val = unsafe {
     if CalleeHandled {
