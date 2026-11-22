@@ -22,15 +22,16 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
         format!("{attr} is only supported on class methods, accessors and fields"),
       ));
     }
-    let js_name = opts.js_name().map_or_else(
-      || js_mod.ident.to_string(),
-      |(js_name, _)| js_name.to_owned(),
+    let (js_name, js_name_span) = opts.js_name().map_or_else(
+      || (js_mod.ident.to_string(), js_mod.ident.span()),
+      |(js_name, span)| (js_name.to_owned(), span),
     );
     if let Some((_, mut items)) = js_mod.content.clone() {
       for item in items.iter_mut() {
         let mut empty_attrs = vec![];
         if let Some(item_opts) = replace_napi_attr_in_mod(
-          js_name.clone(),
+          &js_name,
+          js_name_span,
           match item {
             Item::Fn(ref mut function) => &mut function.attrs,
             Item::Struct(ref mut struct_) => &mut struct_.attrs,
@@ -89,7 +90,8 @@ fn is_napi_attr(attr: &Attribute) -> bool {
 }
 
 fn replace_napi_attr_in_mod(
-  js_namespace: String,
+  js_namespace: &str,
+  js_namespace_span: Span,
   attrs: &mut Vec<syn::Attribute>,
 ) -> BindgenResult<Option<BindgenAttrs>> {
   let napi_attr = attrs.iter().enumerate().find(|(_, m)| is_napi_attr(m));
@@ -117,10 +119,19 @@ fn replace_napi_attr_in_mod(
       .iter()
       .any(|(_, attr)| matches!(attr, BindgenAttr::Namespace(..)))
     {
+      // The module name becomes the item's namespace here without being parsed, so it is
+      // checked here, and only when an item uses it.
+      crate::parser::attrs::validate_namespace(js_namespace).map_err(|message| {
+        napi_derive_backend::Diagnostic::span_error(js_namespace_span, message)
+      })?;
       // adds `namespace = #js_namespace` into `#[napi]` attribute unless explicitly overridden
       struct_opts.attrs.push((
         Cell::new(false),
-        BindgenAttr::Namespace(Span::call_site(), js_namespace, Span::call_site()),
+        BindgenAttr::Namespace(
+          Span::call_site(),
+          js_namespace.to_owned(),
+          Span::call_site(),
+        ),
       ));
     }
 
@@ -219,6 +230,56 @@ mod tests {
     )
     .unwrap_err();
     assert!(format!("{err:?}").contains("invalid #[napi] attribute"));
+  }
+
+  #[test]
+  fn validates_the_module_js_name_as_a_namespace() {
+    let err = expand(
+      quote! { js_name = "a..b" },
+      quote! {
+        mod my_mod {
+          #[napi_derive::napi]
+          pub fn f() -> u32 { 1 }
+        }
+      },
+    )
+    .unwrap_err();
+    assert!(format!("{err:?}").contains("namespace `a..b` has an empty segment"));
+
+    let err = expand(
+      quote! {},
+      quote! {
+        mod my_mod {
+          #[napi_derive::napi(namespace = "x.__proto__")]
+          pub fn f() -> u32 { 1 }
+        }
+      },
+    )
+    .unwrap_err();
+    assert!(format!("{err:?}").contains("must not use `__proto__`"));
+
+    // The module name is only checked when an item takes it as its namespace.
+    let expanded = expand_mod(
+      quote! { js_name = "" },
+      quote! {
+        mod my_mod {
+          #[napi_derive::napi(namespace = "x")]
+          pub fn f() -> u32 { 1 }
+        }
+      },
+    );
+    assert!(expanded.contains("Some (\"x\\0\")"));
+
+    let expanded = expand_mod(
+      quote! { js_name = "outer.inner" },
+      quote! {
+        mod my_mod {
+          #[napi_derive::napi]
+          pub fn f() -> u32 { 1 }
+        }
+      },
+    );
+    assert!(expanded.contains("Some (\"outer.inner\\0\")"));
   }
 
   #[test]

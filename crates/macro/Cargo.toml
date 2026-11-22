@@ -30,6 +30,7 @@ napi-derive-backend = { version = "7.0.1", path = "../backend" }
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "3", features = ["fold", "full", "extra-traits"] }
+unicode-ident = "1"
 
 [lib]
 proc-macro = true

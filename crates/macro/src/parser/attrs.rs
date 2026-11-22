@@ -424,9 +424,147 @@ impl Parse for BindgenAttrs {
     }
 
     let opts = syn::punctuated::Punctuated::<_, syn::token::Comma>::parse_terminated(input)?;
+    for attr in &opts {
+      if let BindgenAttr::Namespace(_, namespace, span) = attr {
+        validate_namespace(namespace).map_err(|message| syn::Error::new(*span, message))?;
+      }
+    }
     attrs.attrs = opts.into_iter().map(|c| (Cell::new(false), c)).collect();
     Ok(attrs)
   }
+}
+
+/// Words that cannot be the root of a dotted namespace. The root is a binding in the ESM
+/// and browser loaders (`const { root } = nativeBinding`, `export const root = ...`), which
+/// are module code, so the words reserved in strict mode are out too. TypeScript also rejects
+/// the reserved words as a namespace name (TS2819).
+const RESERVED_NAMESPACE_ROOTS: &[&str] = &[
+  // ReservedWord
+  "await",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "debugger",
+  "default",
+  "delete",
+  "do",
+  "else",
+  "enum",
+  "export",
+  "extends",
+  "false",
+  "finally",
+  "for",
+  "function",
+  "if",
+  "import",
+  "in",
+  "instanceof",
+  "new",
+  "null",
+  "return",
+  "super",
+  "switch",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "typeof",
+  "var",
+  "void",
+  "while",
+  "with",
+  "yield",
+  // Reserved in strict mode code
+  "implements",
+  "interface",
+  "let",
+  "package",
+  "private",
+  "protected",
+  "public",
+  "static",
+  // Not a binding name in strict mode code
+  "arguments",
+  "eval",
+  // Reserved by the NAPI-RS type generation
+  "globalThis",
+];
+
+/// Whether `segment` is a JavaScript IdentifierName. It uses the `XID_*` properties of the
+/// Unicode version that the resolved `unicode-ident` ships. These leave out a few rare
+/// characters that `ID_*` (what ECMAScript uses) takes, and they can be newer than the
+/// TypeScript scanner: TypeScript 6.0 rejects letters added in Unicode 16 (TS1127), such as
+/// U+10D50, in the generated d.ts, though the runtime and Node accept them.
+fn is_identifier_name(segment: &str) -> bool {
+  let mut chars = segment.chars();
+  chars
+    .next()
+    .is_some_and(|c| c == '$' || c == '_' || unicode_ident::is_xid_start(c))
+    && chars
+      .all(|c| c == '$' || c == '\u{200C}' || c == '\u{200D}' || unicode_ident::is_xid_continue(c))
+}
+
+/// Checks a `namespace` value, which nests at runtime: `"a.b"` is `exports.a.b`.
+///
+/// Every namespace must be non-empty, have no control character (category Cc) or JavaScript
+/// line terminator (U+2028, U+2029) and no `__proto__` segment. None of these can work: `""`,
+/// control characters and line terminators break the generated d.ts and loaders, a NUL fails
+/// the load, and `__proto__` sets a prototype instead of a property (see below).
+///
+/// A dotted namespace must also be valid in the generated d.ts (`export declare namespace
+/// a.b`) and loaders, so each segment must be an identifier and the root must be a name the
+/// ESM loader can bind. A namespace without a dot is not held to these rules, so it keeps
+/// building as before: `"default"` or `"class"` works through the CommonJS loader, and any
+/// name works through `exports[name]` when the JS binding is not generated (`--no-js`).
+pub(crate) fn validate_namespace(namespace: &str) -> Result<(), String> {
+  if namespace.is_empty() {
+    return Err("namespace must not be empty".to_owned());
+  }
+  // U+2028 and U+2029 are not Cc, but JavaScript reads them as line breaks, like `\n`.
+  if let Some(c) = namespace
+    .chars()
+    .find(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}'))
+  {
+    return Err(format!(
+      "namespace `{}` must not contain a control or line terminator character, found U+{:04X}",
+      namespace.escape_debug(),
+      u32::from(c)
+    ));
+  }
+  // `__proto__` would be set with `exports.__proto__ = ...` by the CommonJS loader, and by any
+  // copy of the exports object with `Object.assign` or a bundler's interop helper, which
+  // replaces the prototype of the target instead of adding the namespace to it.
+  if namespace.split('.').any(|segment| segment == "__proto__") {
+    return Err(format!(
+      "namespace `{namespace}` must not use `__proto__` as a name"
+    ));
+  }
+  if !namespace.contains('.') {
+    return Ok(());
+  }
+  for segment in namespace.split('.') {
+    if segment.is_empty() {
+      return Err(format!(
+        "namespace `{namespace}` has an empty segment; write the parts separated by single dots, as in `a.b`"
+      ));
+    }
+    if !is_identifier_name(segment) {
+      return Err(format!(
+        "namespace `{namespace}`: `{segment}` is not a JavaScript identifier; each part of a dotted namespace must be one"
+      ));
+    }
+  }
+  let root = namespace.split('.').next().unwrap_or_default();
+  if RESERVED_NAMESPACE_ROOTS.contains(&root) {
+    return Err(format!(
+      "namespace `{namespace}`: `{root}` is reserved and cannot be the first part of a dotted namespace, which is exported under that name"
+    ));
+  }
+  Ok(())
 }
 
 impl Parse for BindgenAttr {
@@ -554,5 +692,108 @@ impl Parse for BindgenAttr {
     attrgen!(parsers);
 
     Err(original.error("unknown attribute"))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::{validate_namespace, BindgenAttrs};
+
+  #[track_caller]
+  fn rejects(namespace: &str, message: &str) {
+    let error = validate_namespace(namespace).unwrap_err();
+    assert!(error.contains(message), "`{namespace}`: {error}");
+  }
+
+  #[test]
+  fn accepts_identifier_namespaces() {
+    for namespace in [
+      "a",
+      "a.b.c",
+      "$a._b",
+      "ünï.çø",
+      "a\u{200C}b.c",
+      "undefined.x",
+      "x.default",
+      "x.class",
+      "x.constructor",
+      "x.prototype",
+    ] {
+      assert_eq!(validate_namespace(namespace), Ok(()), "`{namespace}`");
+    }
+  }
+
+  #[test]
+  fn keeps_accepting_single_segment_names() {
+    for namespace in [
+      "default",
+      "class",
+      "delete",
+      "await",
+      "a-b",
+      "1a",
+      "a b",
+      // `napi build` rejects it while it generates the type definitions (on by default with
+      // the `type-def` feature), but it works at runtime as `exports.globalThis`.
+      "globalThis",
+    ] {
+      assert_eq!(validate_namespace(namespace), Ok(()), "`{namespace}`");
+    }
+  }
+
+  #[test]
+  fn rejects_empty_namespaces_and_segments() {
+    rejects("", "must not be empty");
+    rejects(".a", "has an empty segment");
+    rejects("a.", "has an empty segment");
+    rejects("a..b", "has an empty segment");
+    rejects(".", "has an empty segment");
+  }
+
+  #[test]
+  fn rejects_control_characters() {
+    rejects("a\0b", "found U+0000");
+    rejects("a\nb", "found U+000A");
+    rejects("a.b\u{7F}", "found U+007F");
+    rejects("a\u{2028}b", "found U+2028");
+    rejects("a\u{2029}b", "found U+2029");
+    assert!(validate_namespace("a\0b")
+      .unwrap_err()
+      .starts_with("namespace `a\\0b`"));
+  }
+
+  #[test]
+  fn rejects_proto_anywhere() {
+    rejects("__proto__", "`__proto__`");
+    rejects("__proto__.a", "`__proto__`");
+    rejects("a.__proto__", "`__proto__`");
+  }
+
+  #[test]
+  fn rejects_dotted_segments_that_are_not_identifiers() {
+    rejects("x.a-b", "`a-b` is not a JavaScript identifier");
+    rejects("a-b.x", "`a-b` is not a JavaScript identifier");
+    rejects("x.1a", "`1a` is not a JavaScript identifier");
+    rejects("x.a b", "`a b` is not a JavaScript identifier");
+  }
+
+  #[test]
+  fn rejects_reserved_dotted_roots() {
+    for root in [
+      "default", "class", "delete", "await", "yield", "let", "static", "eval",
+    ] {
+      rejects(&format!("{root}.x"), &format!("`{root}` is reserved"));
+    }
+    rejects("globalThis.x", "`globalThis` is reserved");
+  }
+
+  #[test]
+  fn parse_errors_point_at_the_namespace_string() {
+    let error = syn::parse_str::<BindgenAttrs>(r#"js_name = "f", namespace = "a..b""#).unwrap_err();
+    assert!(
+      error.to_string().contains("has an empty segment"),
+      "{error}"
+    );
+    assert!(syn::parse_str::<BindgenAttrs>(r#"namespace = "a.b""#).is_ok());
   }
 }

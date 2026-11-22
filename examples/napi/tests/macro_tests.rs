@@ -14,5 +14,6 @@ fn run_build_error_tests() {
   t.compile_fail("tests/build_error_tests/assign_js_value_to_class.rs");
   t.compile_fail("tests/build_error_tests/nested_mod.rs");
   t.compile_fail("tests/build_error_tests/mod_invalid_attr.rs");
+  t.compile_fail("tests/build_error_tests/namespace_invalid.rs");
   t.pass("tests/build_error_tests/mod_qualified_attrs_pass.rs");
 }

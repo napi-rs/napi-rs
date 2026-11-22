@@ -161,6 +161,24 @@ test('`globalThis` is reserved as a namespace root', async (t) => {
   )
 })
 
+test('empty namespace segments and `__proto__` are rejected', async (t) => {
+  for (const [jsMod, message] of [
+    ['', /`` is empty or has an empty segment/],
+    ['a..b', /`a\.\.b` is empty or has an empty segment/],
+    ['a.', /`a\.` is empty or has an empty segment/],
+    ['__proto__', /must not use `__proto__`/],
+    ['a.__proto__', /must not use `__proto__`/],
+  ] as const) {
+    await t.throwsAsync(
+      processInlineTypeDef([
+        { kind: 'fn', name: 'f', def: 'function f(): void', js_mod: jsMod },
+      ]),
+      { message },
+      jsMod,
+    )
+  }
+})
+
 test('well-known symbol members are not taken as the async iterator helper', async (t) => {
   // `#[napi(well_known_symbol = "asyncIterator")]` emits a `globalThis` key,
   // which the `#[napi(async_iterator)]` rewrite must leave alone.

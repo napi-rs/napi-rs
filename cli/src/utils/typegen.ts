@@ -544,7 +544,20 @@ function renderTypeDefs(
     for (const [namespace, namespaceDefs] of groupedDefs) {
       if (namespace !== TOP_LEVEL_NAMESPACE) {
         // `a.b` is exported as the `a` object, so `a` is the top-level name.
-        const [exportName] = namespace.split('.')
+        const segments = namespace.split('.')
+        // napi-derive rejects these at compile time; an older one still writes them, and
+        // they make a d.ts and loaders that do not parse, or set a prototype.
+        if (segments.some((segment) => segment === '')) {
+          throw new Error(
+            `The namespace \`${namespace}\` is empty or has an empty segment`,
+          )
+        }
+        if (segments.includes('__proto__')) {
+          throw new Error(
+            `The namespace \`${namespace}\` must not use \`__proto__\` as a name`,
+          )
+        }
+        const [exportName] = segments
         if (exportName === 'globalThis') {
           throw new Error(
             'The export name `globalThis` is reserved by NAPI-RS type generation',
