@@ -1,8 +1,6 @@
 use std::cell::RefCell;
 #[cfg(not(feature = "noop"))]
-use std::collections::HashSet;
-#[cfg(not(feature = "noop"))]
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 #[cfg(all(not(feature = "noop"), feature = "node_version_detect"))]
 use std::mem::MaybeUninit;
 #[cfg(not(feature = "noop"))]
@@ -1400,7 +1398,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
 
   // Registration keys are compile-time strings. Avoid `RandomState` so WASI module
   // registration does not request randomness during workerd global initialization.
-  let mut exports_objects: HashSet<String, FxBuildHasher> = HashSet::with_hasher(FxBuildHasher);
+  let mut namespaces: Namespaces = HashMap::with_hasher(FxBuildHasher);
 
   if registration.is_some() {
     let mut register_callback = MODULE_REGISTER_CALLBACK
@@ -1425,51 +1423,20 @@ pub unsafe extern "C" fn napi_register_module_v1(
       )
       .iter()
       .for_each(|(js_mod, items)| {
-        let mut exports_js_mod = ptr::null_mut();
-        if let Some(js_mod_str) = js_mod {
-          let mod_name_c_str =
-            unsafe { CStr::from_bytes_with_nul_unchecked(js_mod_str.as_bytes()) };
-          if exports_objects.contains(*js_mod_str) {
-            check_status_or_throw!(
-              env,
-              unsafe {
-                sys::napi_get_named_property(
-                  env,
-                  exports,
-                  mod_name_c_str.as_ptr(),
-                  &mut exports_js_mod,
-                )
-              },
-              "Get mod {} from exports failed",
-              js_mod_str,
-            );
-          } else {
-            check_status_or_throw!(
-              env,
-              unsafe { sys::napi_create_object(env, &mut exports_js_mod) },
-              "Create export JavaScript Object [{}] failed",
-              js_mod_str
-            );
-            check_status_or_throw!(
-              env,
-              unsafe {
-                sys::napi_set_named_property(env, exports, mod_name_c_str.as_ptr(), exports_js_mod)
-              },
-              "Set exports Object [{}] into exports object failed",
-              js_mod_str
-            );
-            exports_objects.insert(js_mod_str.to_string());
-          }
-        }
+        let exported_object = match js_mod {
+          Some(js_mod) => match unsafe { namespace_object(env, exports, js_mod, &mut namespaces) } {
+            Ok(object) => object,
+            Err(e) => {
+              unsafe { JsError::from(e).throw_into(env) };
+              return;
+            }
+          },
+          None => exports,
+        };
         for (name, callback) in items {
           unsafe {
             let js_name = CStr::from_bytes_with_nul_unchecked(name.as_bytes());
             if let Err(e) = callback(env).and_then(|v| {
-              let exported_object = if exports_js_mod.is_null() {
-                exports
-              } else {
-                exports_js_mod
-              };
               check_status!(
                 sys::napi_set_named_property(env, exported_object, js_name.as_ptr(), v),
                 "Failed to register export `{}`",
@@ -1498,9 +1465,7 @@ pub unsafe extern "C" fn napi_register_module_v1(
   // removed the record from the lookups.
   let classes_registered = registration.is_some_and(|registration| {
     let mut ctor_refs = Vec::new();
-    if let Err(error) =
-      unsafe { register_classes(env, exports, &mut exports_objects, &mut ctor_refs) }
-    {
+    if let Err(error) = unsafe { register_classes(env, exports, &mut namespaces, &mut ctor_refs) } {
       for (_, ctor_ref) in ctor_refs {
         unsafe { sys::napi_delete_reference(env, ctor_ref) };
       }
@@ -1602,6 +1567,43 @@ pub unsafe extern "C" fn napi_register_module_v1(
   exports
 }
 
+#[cfg(not(feature = "noop"))]
+type Namespaces = HashMap<&'static str, sys::napi_value, FxBuildHasher>;
+
+#[cfg(not(feature = "noop"))]
+unsafe fn namespace_object(
+  env: sys::napi_env,
+  exports: sys::napi_value,
+  js_mod: &'static str,
+  namespaces: &mut Namespaces,
+) -> Result<sys::napi_value> {
+  let js_mod = js_mod.strip_suffix('\0').unwrap_or(js_mod);
+  if let Some(object) = namespaces.get(js_mod) {
+    return Ok(*object);
+  }
+  let (parent, name) = match js_mod.rsplit_once('.') {
+    Some((parent, name)) => (
+      unsafe { namespace_object(env, exports, parent, namespaces) }?,
+      name,
+    ),
+    None => (exports, js_mod),
+  };
+  let name = CString::new(name)?;
+  let mut object = ptr::null_mut();
+  check_status!(
+    unsafe { sys::napi_create_object(env, &mut object) },
+    "Create export JavaScript Object [{}] failed",
+    js_mod
+  )?;
+  check_status!(
+    unsafe { sys::napi_set_named_property(env, parent, name.as_ptr(), object) },
+    "Set exports Object [{}] into exports object failed",
+    js_mod
+  )?;
+  namespaces.insert(js_mod, object);
+  Ok(object)
+}
+
 /// Defines every registered class and sets it on `exports` (or its `js_mod` object).
 ///
 /// Stops at the first failure and returns it without throwing. Every constructor
@@ -1610,43 +1612,19 @@ pub unsafe extern "C" fn napi_register_module_v1(
 unsafe fn register_classes(
   env: sys::napi_env,
   exports: sys::napi_value,
-  exports_objects: &mut HashSet<String, FxBuildHasher>,
+  namespaces: &mut Namespaces,
   ctor_refs: &mut Vec<(&'static str, sys::napi_ref)>,
 ) -> Result<()> {
   MODULE_CLASS_PROPERTIES.borrow(|inner| {
     for js_mods in inner.values() {
       for (js_mod, class_registration) in js_mods {
-        let mut exports_js_mod = ptr::null_mut();
         unsafe {
           let js_name = class_registration.js_name;
           let props = &class_registration.props;
-          if let Some(js_mod_str) = js_mod {
-            let mod_name_c_str = CStr::from_bytes_with_nul_unchecked(js_mod_str.as_bytes());
-            if exports_objects.contains(*js_mod_str) {
-              check_status!(
-                sys::napi_get_named_property(
-                  env,
-                  exports,
-                  mod_name_c_str.as_ptr(),
-                  &mut exports_js_mod,
-                ),
-                "Get mod {} from exports failed",
-                js_mod_str,
-              )?;
-            } else {
-              check_status!(
-                sys::napi_create_object(env, &mut exports_js_mod),
-                "Create export JavaScript Object [{}] failed",
-                js_mod_str
-              )?;
-              check_status!(
-                sys::napi_set_named_property(env, exports, mod_name_c_str.as_ptr(), exports_js_mod),
-                "Set exports Object [{}] into exports object failed",
-                js_mod_str
-              )?;
-              exports_objects.insert(js_mod_str.to_string());
-            }
-          }
+          let exported_object = match js_mod {
+            Some(js_mod) => namespace_object(env, exports, js_mod, namespaces)?,
+            None => exports,
+          };
           let (ctor, props): (Vec<_>, Vec<_>) = props.iter().partition(|prop| prop.is_ctor);
 
           let ctor = ctor
@@ -1705,16 +1683,7 @@ unsafe fn register_classes(
           ctor_refs.push((js_name, ctor_ref));
 
           check_status!(
-            sys::napi_set_named_property(
-              env,
-              if exports_js_mod.is_null() {
-                exports
-              } else {
-                exports_js_mod
-              },
-              js_class_name.as_ptr(),
-              class_ptr
-            ),
+            sys::napi_set_named_property(env, exported_object, js_class_name.as_ptr(), class_ptr),
             "Failed to register class `{}`",
             &js_name,
           )?;

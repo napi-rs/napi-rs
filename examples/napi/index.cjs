@@ -1484,6 +1484,7 @@ module.exports.withAbortSignalHandle = nativeBinding.withAbortSignalHandle
 module.exports.withinAsyncRuntimeIfAvailable = nativeBinding.withinAsyncRuntimeIfAvailable
 module.exports.withoutAbortController = nativeBinding.withoutAbortController
 module.exports.xxh64Alias = nativeBinding.xxh64Alias
+module.exports.deep = nativeBinding.deep
 module.exports.xxh2 = nativeBinding.xxh2
 module.exports.xxh3 = nativeBinding.xxh3
 module.exports.ComplexClass = nativeBinding.ComplexClass

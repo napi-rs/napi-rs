@@ -124,6 +124,18 @@ test('empty classes do not contain a blank body', async (t) => {
   t.false(dts.includes('class Blake2BKey {\n\n}'))
 })
 
+test('nested namespaces export their root object once', async (t) => {
+  const { dts, exports } = await processInlineTypeDef([
+    { kind: 'fn', name: 'a', def: 'function a(): void', js_mod: 'outer' },
+    { kind: 'fn', name: 'b', def: 'function b(): void', js_mod: 'outer.b' },
+    { kind: 'fn', name: 'c', def: 'function c(): void', js_mod: 'only.c' },
+    { kind: 'fn', name: 'd', def: 'function d(): void', js_mod: 'only.d' },
+  ])
+  t.true(dts.includes('export declare namespace outer.b {'))
+  t.true(dts.includes('export declare namespace only.d {'))
+  t.deepEqual(exports, ['only', 'outer'])
+})
+
 test('well-known symbol members are not taken as the async iterator helper', async (t) => {
   // `#[napi(well_known_symbol = "asyncIterator")]` emits a `globalThis` key,
   // which the `#[napi(async_iterator)]` rewrite must leave alone.

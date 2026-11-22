@@ -155,6 +155,7 @@ import {
   xxh2,
   xxh3,
   xxh64Alias,
+  deep,
   tsRename,
   acceptArraybuffer,
   acceptSlice,
@@ -2469,6 +2470,13 @@ BigIntTest('js mod test', (t) => {
   const xx3 = new xxh3.Xxh3()
   xx3.update(Buffer.from('hello world'))
   t.is(xx3.digest(), BigInt('1116'))
+})
+
+test('nested namespaces', (t) => {
+  t.is(xxh3.nested.xxh3NestedPlus(1, 2), 3)
+  t.is(deep.left.deepLeft(), 'left')
+  t.is(deep.left.inner.DEEP_DEPTH, 3)
+  t.is(new deep.right.DeepRight(7).value(), 7)
 })
 
 BigIntTest('from i128 i64', (t) => {

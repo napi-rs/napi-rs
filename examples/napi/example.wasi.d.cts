@@ -2629,6 +2629,21 @@ export declare function withoutAbortController(a: number, b: number): Promise<nu
 
 export declare function xxh64Alias(input: Buffer): bigint
 
+export declare namespace deep.left {
+  export function deepLeft(): string
+}
+
+export declare namespace deep.left.inner {
+  export const DEEP_DEPTH: number
+}
+
+export declare namespace deep.right {
+  export class DeepRight {
+    constructor(value: number)
+    value(): number
+  }
+}
+
 export declare namespace xxh2 {
   export function xxh2Plus(a: number, b: number): number
   export function xxh3Xxh64Alias(input: Buffer): bigint
@@ -2646,6 +2661,10 @@ export declare namespace xxh3 {
   /** xxh128 function */
   export function xxh128(input: Buffer): bigint
   export function xxh3_64(input: Buffer): bigint
+}
+
+export declare namespace xxh3.nested {
+  export function xxh3NestedPlus(a: number, b: number): number
 }
 
 export declare class ComplexClass {

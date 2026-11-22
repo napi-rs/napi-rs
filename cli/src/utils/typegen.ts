@@ -622,7 +622,10 @@ function renderTypeDefs(
               })
               .join('\n\n')
           } else {
-            exports.push(namespace)
+            const [exportName] = namespace.split('.')
+            if (!exports.includes(exportName)) {
+              exports.push(exportName)
+            }
             let declaration = ''
             declaration += `export declare namespace ${namespace} {\n`
             for (const def of defs) {

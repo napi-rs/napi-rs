@@ -85,3 +85,34 @@ use napi::bindgen_prelude::Buffer;
 pub fn xxh64_alias(input: Buffer) -> u64 {
   xxh3::xxh64(input)
 }
+
+#[napi(namespace = "xxh3.nested")]
+pub fn xxh3_nested_plus(a: u32, b: u32) -> u32 {
+  a + b
+}
+
+#[napi(namespace = "deep.left")]
+pub fn deep_left() -> String {
+  "left".to_owned()
+}
+
+#[napi(namespace = "deep.left.inner")]
+pub const DEEP_DEPTH: u32 = 3;
+
+#[napi(namespace = "deep.right")]
+pub struct DeepRight {
+  value: u32,
+}
+
+#[napi(namespace = "deep.right")]
+impl DeepRight {
+  #[napi(constructor)]
+  pub fn new(value: u32) -> Self {
+    DeepRight { value }
+  }
+
+  #[napi]
+  pub fn value(&self) -> u32 {
+    self.value
+  }
+}

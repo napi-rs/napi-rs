@@ -2048,6 +2048,7 @@ export const withAbortSignalHandle = __napiModule.exports.withAbortSignalHandle
 export const withinAsyncRuntimeIfAvailable = __napiModule.exports.withinAsyncRuntimeIfAvailable
 export const withoutAbortController = __napiModule.exports.withoutAbortController
 export const xxh64Alias = __napiModule.exports.xxh64Alias
+export const deep = __napiModule.exports.deep
 export const xxh2 = __napiModule.exports.xxh2
 export const xxh3 = __napiModule.exports.xxh3
 export const ComplexClass = __napiModule.exports.ComplexClass
