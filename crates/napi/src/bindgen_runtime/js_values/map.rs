@@ -78,7 +78,8 @@ where
     let mut map: HashMap<K, V, S> = HashMap::with_capacity_and_hasher(len as usize, S::default());
     for index in 0..len {
       if let Some((key, val)) = obj.property_at(names, index)? {
-        map.insert(K::from(key), unsafe { V::from_napi_value(env, val)? });
+        let val = unsafe { V::from_napi_value(env, val)? };
+        map.insert(K::from(key), val);
       }
     }
 
@@ -157,7 +158,8 @@ where
     let (names, len) = obj.property_names_raw()?;
     for index in 0..len {
       if let Some((key, val)) = obj.property_at(names, index)? {
-        map.insert(K::from(key), unsafe { V::from_napi_value(env, val)? });
+        let val = unsafe { V::from_napi_value(env, val)? };
+        map.insert(K::from(key), val);
       }
     }
 
@@ -242,7 +244,8 @@ where
     let (names, len) = obj.property_names_raw()?;
     for index in 0..len {
       if let Some((key, val)) = obj.property_at(names, index)? {
-        map.insert(K::from(key), unsafe { V::from_napi_value(env, val)? });
+        let val = unsafe { V::from_napi_value(env, val)? };
+        map.insert(K::from(key), val);
       }
     }
 

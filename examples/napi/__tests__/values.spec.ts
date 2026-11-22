@@ -534,6 +534,10 @@ test('map', (t) => {
   t.deepEqual(getIndexMapping(), { a: 101, b: 102, '\0c': 103 })
   t.deepEqual(getIndexMappingWithHasher(), { a: 101, b: 102 })
   t.is(sumIndexMapping({ a: 101, b: 102, '\0c': 103 }), 306)
+  // An `undefined` value skips its entry instead of failing the value conversion.
+  t.is(sumMapping({ a: 1, b: undefined } as any), 1)
+  t.is(sumBtreeMapping({ a: 1, b: undefined } as any), 1)
+  t.is(sumIndexMapping({ a: 1, b: undefined } as any), 1)
   t.deepEqual(indexmapPassthrough({ a: 101, b: 102, '\0c': 103 }), {
     a: 101,
     b: 102,
@@ -1648,6 +1652,8 @@ test('serde-roundtrip', (t) => {
   t.throws(() => testSerdeRoundtrip(NaN))
 
   t.is(testSerdeRoundtrip(null), null)
+  // `undefined` properties are dropped, as `JSON.stringify` drops them.
+  t.deepEqual(testSerdeRoundtrip({ a: 1, b: undefined }), { a: 1 })
 
   let err = t.throws(() => testSerdeRoundtrip(undefined))
   t.is(err?.message, 'undefined cannot be represented as a serde_json::Value')
@@ -1706,6 +1712,8 @@ test('serde-number-from-js-range', (t) => {
   t.is(testSerdeJsonFromJs(NaN), 'null')
   t.is(testSerdeJsonFromJs(Infinity), 'null')
   t.is(testSerdeJsonFromJs(-Infinity), 'null')
+  // `from_js_value` reads object keys as JS values, so a key may contain NUL.
+  t.is(testSerdeJsonFromJs({ 'a\0b': 1 }), JSON.stringify({ 'a\0b': 1 }))
 
   // Verify in-range whole numbers dispatch to visit_i64
   t.is(testSerdeI64FromJs(0), 0)
