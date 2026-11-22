@@ -177,14 +177,19 @@ test('re-entrant callbacks and in-body object getters obey External<T> borrow ru
   const expectedUnwoundCode =
     __napiBindingTarget === 'native' ? 'InvalidArg' : 'GenericFailure'
   const assertInnerConflictAndRethrow = (fn: () => void) => () => {
-    const err = t.throws(fn, {
-      code: 'InvalidArg',
-      message: BORROW_CONFLICT_MSG,
-    })
-    if (!err) {
-      throw new Error('expected re-entrant borrow conflict')
-    }
-    throw err
+    let caught: unknown
+    t.throws(
+      () => {
+        try {
+          fn()
+        } catch (err) {
+          caught = err
+          throw err
+        }
+      },
+      { code: 'InvalidArg', message: BORROW_CONFLICT_MSG },
+    )
+    throw caught
   }
 
   t.throws(
