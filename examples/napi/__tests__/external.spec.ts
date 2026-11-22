@@ -1,4 +1,5 @@
 import {
+  __napiBindingTarget,
   acceptPromiseExternal,
   aliasEitherMutExternal,
   aliasExternalRefAndMut,
@@ -168,28 +169,55 @@ test('re-entrant callbacks and in-body object getters obey External<T> borrow ru
     10,
   )
   t.is(seen, 10)
+  // Unwinding a JS exception through Rust's `Function::call` (`From<Unknown> for Error`)
+  // re-throws the original `InvalidArg` error via `maybe_ref` on native, while on WASM
+  // `From<Unknown> for Error` intentionally drops `maybe_ref` and synthesizes a
+  // `GenericFailure` error with the original message. Assert both the inner `InvalidArg`
+  // borrow rejection (on all targets) and the unwound outer error.
+  const expectedUnwoundCode =
+    __napiBindingTarget === 'native' ? 'InvalidArg' : 'GenericFailure'
+  const assertInnerConflictAndRethrow = (fn: () => void) => () => {
+    const err = t.throws(fn, {
+      code: 'InvalidArg',
+      message: BORROW_CONFLICT_MSG,
+    })
+    if (!err) {
+      throw new Error('expected re-entrant borrow conflict')
+    }
+    throw err
+  }
+
   t.throws(
     () =>
-      reenterExternalCallback(h, () => {
-        mutateExternal(h, 42)
-      }),
-    { code: 'InvalidArg', message: BORROW_CONFLICT_MSG },
+      reenterExternalCallback(
+        h,
+        assertInnerConflictAndRethrow(() => {
+          mutateExternal(h, 42)
+        }),
+      ),
+    { code: expectedUnwoundCode, message: BORROW_CONFLICT_MSG },
   )
 
   // Exclusive borrow rejects both shared and mutable re-entrant borrows.
   t.throws(
     () =>
-      reenterMutExternalCallback(h, () => {
-        getExternal(h)
-      }),
-    { code: 'InvalidArg', message: BORROW_CONFLICT_MSG },
+      reenterMutExternalCallback(
+        h,
+        assertInnerConflictAndRethrow(() => {
+          getExternal(h)
+        }),
+      ),
+    { code: expectedUnwoundCode, message: BORROW_CONFLICT_MSG },
   )
   t.throws(
     () =>
-      reenterMutExternalCallback(h, () => {
-        mutateExternal(h, 42)
-      }),
-    { code: 'InvalidArg', message: BORROW_CONFLICT_MSG },
+      reenterMutExternalCallback(
+        h,
+        assertInnerConflictAndRethrow(() => {
+          mutateExternal(h, 42)
+        }),
+      ),
+    { code: expectedUnwoundCode, message: BORROW_CONFLICT_MSG },
   )
 
   // Converting &mut External<T> inside a callback body is rejected by NativeBorrowBarrier.
