@@ -1,6 +1,6 @@
 {
   "name": "@napi-rs/triples",
-  "version": "2.1.34",
+  "version": "2.1.36",
   "description": "Rust target triples objects",
   "keywords": [
     "Rust",

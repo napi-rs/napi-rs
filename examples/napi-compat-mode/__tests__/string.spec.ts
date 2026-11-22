@@ -27,3 +27,13 @@ test('should be able to concat latin1 string', (t) => {
 test('should be able to crate latin1 string', (t) => {
   t.snapshot(bindings.createLatin1())
 })
+
+test('should convert empty, short and long strings via JsString::into_utf8 / into_utf16', (t) => {
+  const suffix = ' + Rust 🦀 string!'
+  const longAscii = 'napi-rs '.repeat(512)
+  const longMixed = 'aé你🌳'.repeat(512)
+  for (const fixture of ['', 'a', '🌳', longAscii, longMixed]) {
+    t.is(bindings.concatString(fixture), fixture + suffix)
+    t.is(bindings.concatUTF16String(fixture), fixture + suffix)
+  }
+})

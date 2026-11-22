@@ -1,0 +1,11 @@
+error: unknown attribute
+ --> tests/build_error_tests/mod_invalid_attr.rs:3:23
+  |
+3 |   #[napi_derive::napi(unknown_option)]
+  |                       ^^^^^^^^^^^^^^
+
+error: invalid #[napi] attribute
+  --> tests/build_error_tests/mod_invalid_attr.rs:11:3
+   |
+11 |   #[napi_derive::napi = "bad"]
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^

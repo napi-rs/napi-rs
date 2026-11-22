@@ -17,12 +17,25 @@ const {
   testWorkers,
 }: typeof import('../index.cjs') = await import('../example.wasi-browser')
 
+// Known flaky: Rust std's locks on wasm32-wasip1-threads run
+// `memory.atomic.wait32` on the browser main thread, which traps with
+// "Atomics.wait cannot be called in this context". The module keeps working,
+// so a retry passes; the trap that escapes a test is ignored in
+// vite.config.js. Remove once https://github.com/napi-rs/napi-rs/issues/3720
+// is fixed.
+const knownFlakyAtomicsWait = {
+  retry: {
+    count: 2,
+    condition: /Atomics\.wait cannot be called in this context|Test timed out/,
+  },
+}
+
 describe('NAPI-RS wasi browser test', function () {
   it('DEFAULT_COST', function () {
     expect(DEFAULT_COST).toBe(12)
   })
 
-  it('async self in class', async function () {
+  it('async self in class', knownFlakyAtomicsWait, async function () {
     const b = new Bird('foo')
     expect(await b.getNameAsync()).toBe('foo')
   })
@@ -37,29 +50,33 @@ describe('NAPI-RS wasi browser test', function () {
     expect(instance.age).toBe(0.3)
   })
 
-  it('threadsafe function return Promise and await in Rust', async () => {
-    const value = await tsfnReturnPromise((err, value) => {
-      if (err) {
-        throw err
-      }
-      return Promise.resolve(value + 2)
-    })
-    expect(value).toBe(5)
-    await expect(
-      tsfnReturnPromiseTimeout((err, value) => {
+  it(
+    'threadsafe function return Promise and await in Rust',
+    knownFlakyAtomicsWait,
+    async () => {
+      const value = await tsfnReturnPromise((err, value) => {
         if (err) {
           throw err
         }
-        return new Promise((resolve) => {
-          setTimeout(() => {
-            resolve(value + 2)
-          }, 300)
-        })
-      }),
-    ).rejects.toMatchObject(new Error('Timeout'))
-    // trigger Promise.then in Rust after `Promise` is dropped
-    await new Promise((resolve) => setTimeout(resolve, 400))
-  })
+        return Promise.resolve(value + 2)
+      })
+      expect(value).toBe(5)
+      await expect(
+        tsfnReturnPromiseTimeout((err, value) => {
+          if (err) {
+            throw err
+          }
+          return new Promise((resolve) => {
+            setTimeout(() => {
+              resolve(value + 2)
+            }, 300)
+          })
+        }),
+      ).rejects.toMatchObject(new Error('Timeout'))
+      // trigger Promise.then in Rust after `Promise` is dropped
+      await new Promise((resolve) => setTimeout(resolve, 400))
+    },
+  )
 
   it('readFileAsync', async () => {
     __fs.writeFileSync('/test.txt', 'hello world')

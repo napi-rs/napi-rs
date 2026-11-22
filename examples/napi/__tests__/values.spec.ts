@@ -45,6 +45,7 @@ import {
   createStaticLatin1String,
   createStaticUtf16String,
   testLatin1Methods,
+  testUtf8Methods,
   roundtripStr,
   appendToOsString,
   joinPath,
@@ -154,6 +155,7 @@ import {
   xxh2,
   xxh3,
   xxh64Alias,
+  deep,
   tsRename,
   acceptArraybuffer,
   acceptSlice,
@@ -192,6 +194,11 @@ import {
   makeDeepSerdeValue,
   testSerdeBigNumberPrecision,
   testSerdeBufferBytes,
+  testSerdeNumberFromJs,
+  testSerdeI64FromJs,
+  testSerdeI128FromJs,
+  testSerdeU128FromJs,
+  testSerdeJsonFromJs,
   getBigintJsonValue,
   createObjWithProperty,
   receiveObjectOnlyFromJs,
@@ -407,6 +414,46 @@ test('string', (t) => {
   t.is(createStaticLatin1String(), 'Static Latin1 string')
   t.is(createStaticUtf16String(), 'Static UTF16')
   t.is(intoUtf8('Hello'), 'Hello')
+
+  // Edge-case lengths for the `String` / `Utf16String` / `Latin1String`
+  // conversion buffers: empty, one unit, non-BMP and long (> 1 KiB)
+  const suffix = ' + Rust 🦀 string!'
+  const longAscii = 'napi-rs '.repeat(512)
+  const longMixed = 'aé你🌳'.repeat(512)
+  for (const s of ['', 'a', '🌳', longAscii, longMixed]) {
+    t.is(concatStr(s), s + suffix)
+    t.is(concatUtf16(s), s + suffix)
+  }
+  for (const s of ['', 'a', 'ÿ', longAscii, 'æ¶½¾'.repeat(512)]) {
+    t.is(concatLatin1(s), s + suffix)
+  }
+})
+
+test('JsStringUtf8 methods', (t) => {
+  for (const input of [
+    '',
+    'Hello',
+    'JavaScript 🌳 你好 napi',
+    'what up?!\u0000after the NULL',
+  ]) {
+    const bytes = Array.from(Buffer.from(input))
+    t.deepEqual(testUtf8Methods(input), {
+      asStr: input,
+      length: bytes.length,
+      isEmpty: bytes.length === 0,
+      asSlice: bytes,
+      intoOwned: input,
+      take: bytes,
+    })
+  }
+
+  // A lone surrogate has no UTF-8 encoding. V8 writes U+FFFD, emnapi merges it
+  // with the next code unit, so only check that all accessors agree.
+  const lone = testUtf8Methods('a\uD800b')
+  t.is(lone.intoOwned, lone.asStr)
+  t.deepEqual(lone.take, lone.asSlice)
+  t.is(lone.length, lone.asSlice.length)
+  t.is(Buffer.from(lone.asSlice).toString('utf8'), lone.asStr)
 })
 
 test('OsString / OsStr', (t) => {
@@ -1615,6 +1662,117 @@ test('serde-roundtrip', (t) => {
   t.is(err!.message, 'JS symbols cannot be represented as a serde_json::Value')
 })
 
+test('serde-number-from-js-range', (t) => {
+  t.is(testSerdeNumberFromJs(1e300), 1e300)
+  t.is(testSerdeNumberFromJs(-1e300), -1e300)
+  t.is(testSerdeNumberFromJs(2 ** 63), 2 ** 63)
+  t.is(testSerdeNumberFromJs(2 ** 63 - 1024), 2 ** 63 - 1024)
+  t.is(testSerdeNumberFromJs(-1e19), -1e19)
+  t.is(testSerdeNumberFromJs(1e-20), 1e-20)
+  t.is(testSerdeNumberFromJs(-1e-20), -1e-20)
+  t.is(testSerdeNumberFromJs(Number.MIN_VALUE), Number.MIN_VALUE)
+  t.is(testSerdeNumberFromJs(-(2 ** 63)), -(2 ** 63))
+  t.is(testSerdeNumberFromJs(-(2 ** 63) - 2048), -(2 ** 63) - 2048)
+  t.is(testSerdeNumberFromJs(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER)
+  t.is(testSerdeNumberFromJs(-42), -42)
+  t.is(testSerdeNumberFromJs(1.5), 1.5)
+  t.true(Object.is(testSerdeNumberFromJs(-0), -0))
+  t.true(Object.is(testSerdeNumberFromJs(0), 0))
+  t.true(Number.isNaN(testSerdeNumberFromJs(NaN)))
+  t.is(testSerdeNumberFromJs(Infinity), Infinity)
+  t.is(testSerdeNumberFromJs(-Infinity), -Infinity)
+
+  // Verify deserialize_any dispatch for serde_json::Value
+  t.is(testSerdeJsonFromJs(0), '0')
+  t.is(testSerdeJsonFromJs(-0), '0')
+  t.is(testSerdeJsonFromJs(-42), '-42')
+  t.is(testSerdeJsonFromJs(-(2 ** 63)), '-9223372036854775808')
+  t.is(testSerdeJsonFromJs(2 ** 63 - 1024), '9223372036854774784')
+  for (const value of [
+    1e300,
+    -1e300,
+    2 ** 63,
+    -(2 ** 63) - 2048,
+    -1e19,
+    1e-20,
+    -1e-20,
+    Number.MIN_VALUE,
+    1.5,
+  ]) {
+    const serialized = testSerdeJsonFromJs(value)
+    t.regex(serialized, /[.eE]/)
+    t.is(JSON.parse(serialized), value)
+  }
+  t.is(testSerdeJsonFromJs(NaN), 'null')
+  t.is(testSerdeJsonFromJs(Infinity), 'null')
+  t.is(testSerdeJsonFromJs(-Infinity), 'null')
+
+  // Verify in-range whole numbers dispatch to visit_i64
+  t.is(testSerdeI64FromJs(0), 0)
+  t.is(testSerdeI64FromJs(-0), 0)
+  t.is(testSerdeI64FromJs(-42), -42)
+  t.is(testSerdeI64FromJs(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER)
+  t.is(testSerdeI64FromJs(2 ** 63 - 1024), 2 ** 63 - 1024)
+  t.is(testSerdeI64FromJs(-(2 ** 63)), -(2 ** 63))
+
+  // Verify out-of-range, fractional, and non-finite numbers dispatch to visit_f64
+  for (const value of [
+    2 ** 63,
+    -(2 ** 63) - 2048,
+    1e300,
+    -1e300,
+    1e-20,
+    -1e-20,
+    Number.MIN_VALUE,
+    1.5,
+    NaN,
+    Infinity,
+    -Infinity,
+  ]) {
+    t.throws(() => testSerdeI64FromJs(value), {
+      message: /invalid type: floating point/,
+    })
+  }
+})
+
+test('serde-bigint-from-js-range', (t) => {
+  const i64Min = -(2n ** 63n)
+  const i128Min = -(2n ** 127n)
+  const i128Max = 2n ** 127n - 1n
+  const u64Max = 2n ** 64n - 1n
+  const u128Max = 2n ** 128n - 1n
+
+  // In-range negative 1-word BigInts visit_i64
+  t.is(testSerdeI64FromJs(0n), 0)
+  t.is(testSerdeI64FromJs(-42n), -42)
+  t.is(testSerdeI64FromJs(i64Min), -(2 ** 63))
+
+  // Negative 1-word BigInts below i64::MIN must route to visit_i128, not wrap positive
+  t.throws(() => testSerdeI64FromJs(i64Min - 1n))
+  t.is(testSerdeI128FromJs(i64Min), i64Min)
+  t.is(testSerdeI128FromJs(i64Min - 1n), i64Min - 1n)
+  t.is(testSerdeI128FromJs(-u64Max), -u64Max)
+  t.is(testSerdeI128FromJs(i128Min), i128Min)
+  t.is(testSerdeI128FromJs(i128Max), i128Max)
+  t.throws(() => testSerdeI128FromJs(i128Min - 1n), {
+    message: /out of range for i128/,
+  })
+  t.throws(() => testSerdeI128FromJs(-(2n ** 128n) - 2n ** 127n), {
+    message: /out of range for i128/,
+  })
+  t.throws(() => testSerdeI128FromJs(i128Max + 1n))
+
+  // Unsigned BigInt boundaries and overflow rejection
+  t.is(testSerdeU128FromJs(0n), 0n)
+  t.is(testSerdeU128FromJs(u64Max), u64Max)
+  t.is(testSerdeU128FromJs(u64Max + 1n), u64Max + 1n)
+  t.is(testSerdeU128FromJs(u128Max), u128Max)
+  t.throws(() => testSerdeU128FromJs(u128Max + 1n), {
+    message: /out of range for u128/,
+  })
+  t.throws(() => testSerdeU128FromJs(-1n))
+})
+
 test('serde-roundtrip-depth-limit', (t) => {
   // A cyclic value must throw a catchable error instead of overflowing the
   // native stack and aborting the process.
@@ -2314,6 +2472,20 @@ BigIntTest('js mod test', (t) => {
   t.is(xx3.digest(), BigInt('1116'))
 })
 
+test('nested namespaces', (t) => {
+  t.is(xxh3.nested.xxh3NestedPlus(1, 2), 3)
+  t.is(deep.left.deepLeft(), 'left')
+  const right: deep.right.DeepRight = deep.left.deepLeftToRight(5)
+  t.true(right instanceof deep.right.DeepRight)
+  t.is(right.value(), 5)
+  t.is(deep.left.inner.DEEP_DEPTH, 3)
+  t.is(new deep.right.DeepRight(7).value(), 7)
+  // A function or class keeps its identity and also holds the namespace under its name.
+  t.is(deep(), 'root')
+  t.deepEqual(Object.keys(deep).sort(), ['left', 'right'])
+  t.is(deep.right.DeepRight.describe(), 'DeepRight')
+})
+
 BigIntTest('from i128 i64', (t) => {
   t.is(bigintFromI64(), BigInt('100'))
   t.is(bigintFromI128(), BigInt('-100'))
@@ -2658,6 +2830,22 @@ test('capture ignores a post-load replacement of Reflect', (t) => {
     Object.defineProperty(globalThis, 'Reflect', realDescriptor)
   }
   t.is(described, 'GenericFailure|still read|still walked')
+})
+
+test('capture reads lone surrogates without re-validating UTF-8', (t) => {
+  // `owned_string_without_coercion` trusts `napi_get_value_string_utf8` to write
+  // valid UTF-8 and skips re-validation. Lone surrogates are the input that
+  // would break that trust. V8 replaces each one with U+FFFD. emnapi instead
+  // folds it into the next code unit, so the WASI lane only checks the shape.
+  const fromMessage = describeCapturedValue(new Error('a\uD800b\uDC00'))
+  const fromPrimitive = describeCapturedValue('\uDC00z')
+  if (process.env.WASI_TEST) {
+    t.regex(fromMessage, /^GenericFailure\|a.+\|-$/u)
+    t.regex(fromPrimitive, /^GenericFailure\|.+\|-$/u)
+  } else {
+    t.is(fromMessage, 'GenericFailure|a�b�|-')
+    t.is(fromPrimitive, 'GenericFailure|�z|-')
+  }
 })
 
 Napi4Test(

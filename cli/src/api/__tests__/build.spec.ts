@@ -16,6 +16,7 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join, dirname, resolve } from 'node:path'
 import { join as posixJoin, sep as posixSep } from 'node:path/posix'
@@ -33,14 +34,17 @@ import {
   EMNAPI_WASI_SDK_34_LINK_DIR,
   ensureBindingTargetDeclaration,
   generateTypeDef,
+  inspectWasiBinaryMemory,
   napiCrossToolchainEnvs,
   resolveNapiCrossHostTriple,
   prepareWasiBindingTypeDef,
   resolveBuildFormat,
   resolveWasmMemory,
+  resolveWasmStackSize,
   selectEmnapiLinkDir,
   validateCrossCompileFlags,
   validateNapiCrossSupport,
+  verifyWasiReactor,
   writeJsBinding,
 } from '../build.js'
 import { getSystemDefaultTarget, scanExportedName } from '../../utils/index.js'
@@ -4424,6 +4428,504 @@ test('resolveWasmMemory rejects non-page values', (t) => {
   })
 })
 
+test('resolveWasmStackSize leaves defaults untouched when unset or empty env', (t) => {
+  t.deepEqual(resolveWasmStackSize(undefined, true), {
+    stackSizeBytes: undefined,
+    source: undefined,
+  })
+  t.deepEqual(resolveWasmStackSize({}, false, ''), {
+    stackSizeBytes: undefined,
+    source: undefined,
+  })
+  // Empty string env falls back to napi.wasm.stackSizeBytes
+  t.deepEqual(resolveWasmStackSize({ stackSizeBytes: 1048576 }, false, ''), {
+    stackSizeBytes: 1048576,
+    source: 'napi.wasm.stackSizeBytes',
+  })
+})
+
+test('resolveWasmStackSize prioritizes non-empty env over config while still validating config', (t) => {
+  t.deepEqual(
+    resolveWasmStackSize({ stackSizeBytes: 1048576 }, true, '2097152'),
+    {
+      stackSizeBytes: 2097152,
+      source: 'NAPI_WASI_STACK_SIZE',
+    },
+  )
+  // Invalid config must still fail even when a valid env var is set
+  t.throws(
+    () => resolveWasmStackSize({ stackSizeBytes: 15 }, true, '1048576'),
+    {
+      message: /napi\.wasm\.stackSizeBytes/,
+    },
+  )
+})
+
+test('resolveWasmStackSize rejects invalid config and env values', (t) => {
+  for (const value of [0, -16, 15, 1.5, Number.NaN, 4294967296]) {
+    t.throws(() => resolveWasmStackSize({ stackSizeBytes: value }, false), {
+      message: /napi\.wasm\.stackSizeBytes/,
+    })
+  }
+  for (const envValue of [
+    '0',
+    '-16',
+    '15',
+    '1.5',
+    '4294967296',
+    '+16',
+    ' 16',
+    '16 ',
+    'abc',
+  ]) {
+    t.throws(() => resolveWasmStackSize({}, false, envValue), {
+      message: /NAPI_WASI_STACK_SIZE/,
+    })
+  }
+})
+
+test('resolveWasmStackSize cross-checks maximumMemory and initial memory floors', (t) => {
+  // stackSizeBytes must be strictly smaller than maximumMemory * 65536
+  t.throws(
+    () =>
+      resolveWasmStackSize(
+        { maximumMemory: 16, stackSizeBytes: 16 * 65536 },
+        false,
+      ),
+    {
+      message:
+        /napi\.wasm\.stackSizeBytes \(1048576 bytes\) must be smaller than napi\.wasm\.maximumMemory \(16 pages = 1048576 bytes\)/,
+    },
+  )
+  t.notThrows(() =>
+    resolveWasmStackSize(
+      { maximumMemory: 16, stackSizeBytes: 16 * 65536 - 16 },
+      false,
+    ),
+  )
+  t.throws(
+    () => resolveWasmStackSize({ maximumMemory: 16 }, true, String(16 * 65536)),
+    {
+      message:
+        /NAPI_WASI_STACK_SIZE \(1048576 bytes\) must be smaller than napi\.wasm\.maximumMemory \(16 pages = 1048576 bytes\)/,
+    },
+  )
+
+  // Config stackSizeBytes checks BOTH initialMemory and threadlessInitialMemory
+  t.throws(
+    () =>
+      resolveWasmStackSize(
+        {
+          initialMemory: 4000,
+          threadlessInitialMemory: 100,
+          stackSizeBytes: 8 * 1024 * 1024, // 128 pages
+        },
+        true,
+      ),
+    {
+      message:
+        /napi\.wasm\.threadlessInitialMemory \(100 pages = 6553600 bytes\) is smaller than napi\.wasm\.stackSizeBytes \(8388608 bytes, requires at least 128 pages\)/,
+    },
+  )
+  t.throws(
+    () =>
+      resolveWasmStackSize(
+        {
+          initialMemory: 100,
+          threadlessInitialMemory: 4000,
+          stackSizeBytes: 8 * 1024 * 1024,
+        },
+        false,
+      ),
+    {
+      message:
+        /napi\.wasm\.initialMemory \(100 pages = 6553600 bytes\) is smaller than napi\.wasm\.stackSizeBytes \(8388608 bytes, requires at least 128 pages\)/,
+    },
+  )
+
+  // Env override checks only the active target's explicit initialMemory
+  t.deepEqual(
+    resolveWasmStackSize(
+      {
+        initialMemory: 4000,
+        threadlessInitialMemory: 100,
+      },
+      true,
+      String(8 * 1024 * 1024),
+    ),
+    {
+      stackSizeBytes: 8 * 1024 * 1024,
+      source: 'NAPI_WASI_STACK_SIZE',
+    },
+  )
+  t.throws(
+    () =>
+      resolveWasmStackSize(
+        {
+          initialMemory: 4000,
+          threadlessInitialMemory: 100,
+        },
+        false,
+        String(8 * 1024 * 1024),
+      ),
+    {
+      message:
+        /napi\.wasm\.threadlessInitialMemory \(100 pages = 6553600 bytes\) is smaller than NAPI_WASI_STACK_SIZE \(8388608 bytes, requires at least 128 pages\)/,
+    },
+  )
+  t.throws(
+    () =>
+      resolveWasmStackSize(
+        {
+          initialMemory: 100,
+        },
+        false,
+        String(8 * 1024 * 1024),
+      ),
+    {
+      message:
+        /napi\.wasm\.initialMemory \(100 pages = 6553600 bytes\) is smaller than NAPI_WASI_STACK_SIZE \(8388608 bytes, requires at least 128 pages\)/,
+    },
+  )
+})
+
+function encodeWasmU32(value: number): number[] {
+  const bytes: number[] = []
+  let v = value >>> 0
+  do {
+    let byte = v & 0x7f
+    v >>>= 7
+    if (v !== 0) {
+      byte |= 0x80
+    }
+    bytes.push(byte)
+  } while (v !== 0)
+  return bytes
+}
+
+function encodeWasmI32(value: number): number[] {
+  const bytes: number[] = []
+  let v = value | 0
+  while (true) {
+    const byte = v & 0x7f
+    v >>= 7
+    if ((v === 0 && (byte & 0x40) === 0) || (v === -1 && (byte & 0x40) !== 0)) {
+      bytes.push(byte)
+      break
+    }
+    bytes.push(byte | 0x80)
+  }
+  return bytes
+}
+
+function encodeWasmStr(str: string): number[] {
+  const utf8 = [...Buffer.from(str, 'utf8')]
+  return [...encodeWasmU32(utf8.length), ...utf8]
+}
+
+function encodeWasmSection(id: number, body: number[]): number[] {
+  return [id, ...encodeWasmU32(body.length), ...body]
+}
+
+function buildSyntheticWasiWasm(options: {
+  memoryMinPages?: number
+  memoryMaxPages?: number
+  memoryShared?: boolean
+  importedGlobalName?: string
+  stackPointer?: number
+  stackPointerMutable?: boolean
+  exportInitialize?: boolean
+}): Uint8Array {
+  const sections: number[] = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
+  const exportInitialize = options.exportInitialize ?? true
+
+  if (exportInitialize) {
+    // Type section: 1 type () -> ()
+    sections.push(...encodeWasmSection(1, [0x01, 0x60, 0x00, 0x00]))
+  }
+
+  // Import section
+  const imports: number[][] = []
+  if (options.memoryMinPages !== undefined) {
+    const hasMax =
+      options.memoryMaxPages !== undefined || Boolean(options.memoryShared)
+    const flags = (hasMax ? 0x01 : 0x00) | (options.memoryShared ? 0x02 : 0x00)
+    const limits = [flags, ...encodeWasmU32(options.memoryMinPages)]
+    if (hasMax) {
+      limits.push(...encodeWasmU32(options.memoryMaxPages ?? 65536))
+    }
+    imports.push([
+      ...encodeWasmStr('env'),
+      ...encodeWasmStr('memory'),
+      0x02,
+      ...limits,
+    ])
+  }
+  if (options.importedGlobalName) {
+    imports.push([
+      ...encodeWasmStr('env'),
+      ...encodeWasmStr(options.importedGlobalName),
+      0x03,
+      0x7f,
+      0x01,
+    ])
+  }
+  if (imports.length > 0) {
+    sections.push(
+      ...encodeWasmSection(2, [
+        ...encodeWasmU32(imports.length),
+        ...imports.flat(),
+      ]),
+    )
+  }
+
+  if (exportInitialize) {
+    // Function section: 1 func of type 0
+    sections.push(...encodeWasmSection(3, [0x01, 0x00]))
+  }
+
+  if (options.stackPointer !== undefined) {
+    const mut = options.stackPointerMutable === false ? 0x00 : 0x01
+    sections.push(
+      ...encodeWasmSection(6, [
+        0x01,
+        0x7f,
+        mut,
+        0x41,
+        ...encodeWasmI32(options.stackPointer),
+        0x0b,
+      ]),
+    )
+  }
+
+  if (exportInitialize) {
+    // Export section: _initialize -> func 0
+    sections.push(
+      ...encodeWasmSection(7, [
+        0x01,
+        ...encodeWasmStr('_initialize'),
+        0x00,
+        0x00,
+      ]),
+    )
+    // Code section: empty body
+    sections.push(...encodeWasmSection(10, [0x01, 0x02, 0x00, 0x0b]))
+  }
+
+  return new Uint8Array(sections)
+}
+
+test('inspectWasiBinaryMemory parses env.memory and mutable i32 stack pointer', (t) => {
+  const wasm = buildSyntheticWasiWasm({
+    memoryMinPages: 260,
+    memoryMaxPages: 65536,
+    memoryShared: true,
+    stackPointer: 16_777_216,
+  })
+  t.deepEqual(inspectWasiBinaryMemory(wasm), {
+    memoryMinPages: 260,
+    stackPointer: 16_777_216,
+    importsStackPointer: false,
+  })
+})
+
+test('inspectWasiBinaryMemory decodes >= 2^31 signed LEB128 stack pointers as unsigned u32', (t) => {
+  const wasm = buildSyntheticWasiWasm({
+    memoryMinPages: 32768,
+    stackPointer: 2_147_483_648,
+  })
+  t.deepEqual(inspectWasiBinaryMemory(wasm), {
+    memoryMinPages: 32768,
+    stackPointer: 2_147_483_648,
+    importsStackPointer: false,
+  })
+})
+
+test('inspectWasiBinaryMemory handles imported globals, immutable globals, and malformed bytes', (t) => {
+  const immutable = buildSyntheticWasiWasm({
+    memoryMinPages: 64,
+    stackPointer: 1_048_576,
+    stackPointerMutable: false,
+  })
+  t.deepEqual(inspectWasiBinaryMemory(immutable), {
+    memoryMinPages: 64,
+    stackPointer: undefined,
+    importsStackPointer: false,
+  })
+
+  // Unrelated imported global: Section 6 entry 0 is still `__stack_pointer`.
+  const unrelatedImported = buildSyntheticWasiWasm({
+    memoryMinPages: 64,
+    importedGlobalName: 'other',
+    stackPointer: 1_048_576,
+  })
+  t.deepEqual(inspectWasiBinaryMemory(unrelatedImported), {
+    memoryMinPages: 64,
+    stackPointer: 1_048_576,
+    importsStackPointer: false,
+  })
+
+  // Imported `env.__stack_pointer`: suppress Section 6 stack pointer reading.
+  const importedStackPointer = buildSyntheticWasiWasm({
+    memoryMinPages: 64,
+    importedGlobalName: '__stack_pointer',
+    stackPointer: 1_048_576,
+  })
+  t.deepEqual(inspectWasiBinaryMemory(importedStackPointer), {
+    memoryMinPages: 64,
+    stackPointer: undefined,
+    importsStackPointer: true,
+  })
+
+  t.deepEqual(inspectWasiBinaryMemory(new Uint8Array([1, 2, 3])), {
+    memoryMinPages: undefined,
+    stackPointer: undefined,
+    importsStackPointer: false,
+  })
+  t.deepEqual(
+    inspectWasiBinaryMemory(
+      new Uint8Array([
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x02, 0xff,
+      ]),
+    ),
+    {
+      memoryMinPages: undefined,
+      stackPointer: undefined,
+      importsStackPointer: false,
+    },
+  )
+})
+
+test('verifyWasiReactor checks stack pointer, maximumMemory, and explicit initialMemory floor', async (t) => {
+  const { projectDir } = t.context
+  const wasmPath = join(projectDir, 'module.wasm')
+
+  await writeFile(
+    wasmPath,
+    buildSyntheticWasiWasm({
+      memoryMinPages: 260,
+      stackPointer: 16_777_216,
+    }),
+  )
+
+  await t.notThrowsAsync(() =>
+    verifyWasiReactor(wasmPath, {
+      expectedStackSizeBytes: 16_777_216,
+      stackSizeSource: 'napi.wasm.stackSizeBytes',
+      initialMemoryPages: 260,
+      initialMemorySource: 'napi.wasm.threadlessInitialMemory',
+      maximumMemoryPages: 260,
+    }),
+  )
+
+  // Stack pointer mismatch -> version-skew error
+  await t.throwsAsync(
+    () =>
+      verifyWasiReactor(wasmPath, {
+        expectedStackSizeBytes: 8_388_608,
+        stackSizeSource: 'napi.wasm.stackSizeBytes',
+      }),
+    {
+      message:
+        /has stack pointer 16777216 bytes, but napi\.wasm\.stackSizeBytes requested 8388608 bytes\. Upgrade `napi-build` to >= 2\.7\.0/,
+    },
+  )
+
+  // Explicit maximumMemory exceeded by env.memory minimum (even when initialMemoryPages is undefined)
+  await t.throwsAsync(
+    () =>
+      verifyWasiReactor(wasmPath, {
+        maximumMemoryPages: 259,
+      }),
+    {
+      message:
+        /env\.memory minimum \(260 pages\) exceeds napi\.wasm\.maximumMemory \(259 pages\)\. Increase napi\.wasm\.maximumMemory to at least 260 pages, or lower napi\.wasm\.stackSizeBytes\./,
+    },
+  )
+
+  // Explicit initialMemory below env.memory minimum -> floor error
+  await t.throwsAsync(
+    () =>
+      verifyWasiReactor(wasmPath, {
+        initialMemoryPages: 256,
+        initialMemorySource: 'napi.wasm.threadlessInitialMemory',
+      }),
+    {
+      message:
+        /napi\.wasm\.threadlessInitialMemory \(256 pages\) is below WASI artifact .* env\.memory minimum \(260 pages\)/,
+    },
+  )
+
+  // Unset initialMemory (template default) still passes even with large memoryMinPages
+  await t.notThrowsAsync(() => verifyWasiReactor(wasmPath, {}))
+
+  // Unrelated imported global still reads Section 6 entry 0 and catches mismatch
+  const unrelatedGlobalPath = join(projectDir, 'unrelated-global.wasm')
+  await writeFile(
+    unrelatedGlobalPath,
+    buildSyntheticWasiWasm({
+      memoryMinPages: 260,
+      importedGlobalName: 'other',
+      stackPointer: 16_777_216,
+    }),
+  )
+  await t.throwsAsync(
+    () =>
+      verifyWasiReactor(unrelatedGlobalPath, {
+        expectedStackSizeBytes: 8_388_608,
+        stackSizeSource: 'napi.wasm.stackSizeBytes',
+      }),
+    {
+      message:
+        /has stack pointer 16777216 bytes, but napi\.wasm\.stackSizeBytes requested 8388608 bytes/,
+    },
+  )
+
+  // Imported env.__stack_pointer fails clearly when stack size is explicitly requested
+  const importedStackPtrPath = join(projectDir, 'imported-stack-pointer.wasm')
+  await writeFile(
+    importedStackPtrPath,
+    buildSyntheticWasiWasm({
+      memoryMinPages: 260,
+      importedGlobalName: '__stack_pointer',
+      stackPointer: 16_777_216,
+    }),
+  )
+  await t.throwsAsync(
+    () =>
+      verifyWasiReactor(importedStackPtrPath, {
+        expectedStackSizeBytes: 16_777_216,
+        stackSizeSource: 'NAPI_WASI_STACK_SIZE',
+      }),
+    {
+      message:
+        /imports env\.__stack_pointer, so NAPI_WASI_STACK_SIZE \(16777216 bytes\) cannot be verified against the module's stack pointer\./,
+    },
+  )
+
+  // Fallback when stackPointer is unavailable (e.g. GC'd): check memoryMinPages against requested stack
+  const noStackGlobalPath = join(projectDir, 'no-stack-global.wasm')
+  await writeFile(
+    noStackGlobalPath,
+    buildSyntheticWasiWasm({
+      memoryMinPages: 16,
+      stackPointer: 1_048_576,
+      stackPointerMutable: false,
+    }),
+  )
+  await t.throwsAsync(
+    () =>
+      verifyWasiReactor(noStackGlobalPath, {
+        expectedStackSizeBytes: 2 * 1024 * 1024, // 32 pages > 16 pages
+        stackSizeSource: 'NAPI_WASI_STACK_SIZE',
+      }),
+    {
+      message:
+        /imports env\.memory with minimum 16 pages, which is smaller than NAPI_WASI_STACK_SIZE \(2097152 bytes\)\. Upgrade `napi-build` to >= 2\.7\.0/,
+    },
+  )
+})
+
 // The `cargo` shim below has to actually run, and `spawn`/`execSync` cannot
 // execute a POSIX shell script on Windows.
 const posixOnly = process.platform === 'win32' ? test.serial.skip : test.serial
@@ -4860,5 +5362,116 @@ posixOnly(
     )
     // A bare `4\.1` false-positives on CI env values like `yarn/4.18.1`.
     t.notRegex(buildCalls[0].env, /linux-ohos\.4\.1/)
+  },
+)
+
+posixOnly(
+  'WASI build forwards napi.wasm.stackSizeBytes via NAPI_WASI_STACK_SIZE with env override and empty-string fallback',
+  async (t) => {
+    const { projectDir } = t.context
+    const target = 'wasm32-wasip1'
+    const shim = await setupRecordingCargoProject(
+      t,
+      'wasi_stack_artifact',
+      'wasi-stack-artifact',
+    )
+
+    // Match the installed emnapi version so `Builder#setWasiEnv` passes its
+    // version consistency check against the temp project's node_modules.
+    const cliRequire = createRequire(import.meta.url)
+    const emnapiVersion: string = cliRequire('emnapi/package.json').version
+    for (const pkg of ['@emnapi/core', '@emnapi/runtime']) {
+      const pkgDir = join(projectDir, 'node_modules', pkg)
+      await mkdir(pkgDir, { recursive: true })
+      await writeFile(
+        join(pkgDir, 'package.json'),
+        JSON.stringify({ name: pkg, version: emnapiVersion }),
+      )
+    }
+
+    await writeFile(
+      join(projectDir, 'package.json'),
+      JSON.stringify({
+        name: 'wasi-stack-artifact',
+        version: '0.1.0',
+        napi: {
+          binaryName: 'wasi-stack-artifact',
+          targets: [target],
+          wasm: {
+            stackSizeBytes: 16_777_216,
+            threadlessInitialMemory: 260,
+          },
+        },
+      }),
+    )
+
+    const artifactDir = join(projectDir, 'target', target, 'release')
+    await mkdir(artifactDir, { recursive: true })
+    const artifactPath = join(artifactDir, 'wasi_stack_artifact.wasm')
+
+    const originalStackSize = process.env.NAPI_WASI_STACK_SIZE
+    try {
+      delete process.env.NAPI_WASI_STACK_SIZE
+
+      // 1. Config `napi.wasm.stackSizeBytes` sets `NAPI_WASI_STACK_SIZE`
+      await writeFile(
+        artifactPath,
+        buildSyntheticWasiWasm({
+          memoryMinPages: 260,
+          stackPointer: 16_777_216,
+        }),
+      )
+      await t.notThrowsAsync(async () => {
+        await (
+          await shim.run({ target, cannedMetadata: true })
+        ).task
+      })
+      let { buildCalls } = await readRecordedCargoCalls(shim.argsDir)
+      t.is(buildCalls.length, 1)
+      t.regex(buildCalls[0].env, /^NAPI_WASI_STACK_SIZE=16777216$/m)
+
+      // 2. Non-empty shell `NAPI_WASI_STACK_SIZE` overrides `napi.wasm.stackSizeBytes`
+      await writeFile(
+        artifactPath,
+        buildSyntheticWasiWasm({
+          memoryMinPages: 132,
+          stackPointer: 8_388_608,
+        }),
+      )
+      process.env.NAPI_WASI_STACK_SIZE = '8388608'
+      await t.notThrowsAsync(async () => {
+        await (
+          await shim.run({ target, cannedMetadata: true })
+        ).task
+      })
+      ;({ buildCalls } = await readRecordedCargoCalls(shim.argsDir))
+      t.is(buildCalls.length, 2)
+      t.regex(buildCalls[1].env, /^NAPI_WASI_STACK_SIZE=8388608$/m)
+
+      // 3. Empty shell `NAPI_WASI_STACK_SIZE=""` falls back to `napi.wasm.stackSizeBytes`
+      await writeFile(
+        artifactPath,
+        buildSyntheticWasiWasm({
+          memoryMinPages: 260,
+          stackPointer: 16_777_216,
+        }),
+      )
+      process.env.NAPI_WASI_STACK_SIZE = ''
+      await t.notThrowsAsync(async () => {
+        await (
+          await shim.run({ target, cannedMetadata: true })
+        ).task
+      })
+      ;({ buildCalls } = await readRecordedCargoCalls(shim.argsDir))
+      t.is(buildCalls.length, 3)
+      t.regex(buildCalls[2].env, /^NAPI_WASI_STACK_SIZE=16777216$/m)
+    } finally {
+      if (originalStackSize === undefined) {
+        delete process.env.NAPI_WASI_STACK_SIZE
+      } else {
+        process.env.NAPI_WASI_STACK_SIZE = originalStackSize
+      }
+      shim.restoreEnv()
+    }
   },
 )

@@ -1,30 +1,16 @@
 use super::typedef;
-use crate::parser::{attrs::BindgenAttrs, ParseNapi};
+use crate::parser::{
+  attrs::{BindgenAttr, BindgenAttrs},
+  ParseNapi,
+};
 use napi_derive_backend::{BindgenResult, TryToTokens};
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::ToTokens;
-use std::sync::atomic::{AtomicBool, Ordering};
-use syn::{Attribute, Item};
-
-/// a flag indicate whether or never at least one `napi` macro has been expanded.
-/// ```ignore
-/// if BUILT_FLAG
-///  .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-///  .is_ok() {
-///   // logic on first macro expansion
-/// }
-///
-/// ```
-static BUILT_FLAG: AtomicBool = AtomicBool::new(false);
+use std::cell::Cell;
+use syn::{spanned::Spanned, Attribute, Item};
 
 pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStream> {
-  // logic on first macro expansion
-  if let Ok(built) = BUILT_FLAG.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-  {
-    if !built {
-      typedef::prepare_type_def_file();
-    }
-  }
+  typedef::prepare_type_def_file()?;
 
   let mut item = syn::parse2::<Item>(input)?;
   let opts: BindgenAttrs = syn::parse2(attr)?;
@@ -36,15 +22,16 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
         format!("{attr} is only supported on class methods, accessors and fields"),
       ));
     }
-    let js_name = opts.js_name().map_or_else(
-      || js_mod.ident.to_string(),
-      |(js_name, _)| js_name.to_owned(),
+    let (js_name, js_name_span) = opts.js_name().map_or_else(
+      || (js_mod.ident.to_string(), js_mod.ident.span()),
+      |(js_name, span)| (js_name.to_owned(), span),
     );
     if let Some((_, mut items)) = js_mod.content.clone() {
       for item in items.iter_mut() {
         let mut empty_attrs = vec![];
         if let Some(item_opts) = replace_napi_attr_in_mod(
-          js_name.clone(),
+          &js_name,
+          js_name_span,
           match item {
             Item::Fn(ref mut function) => &mut function.attrs,
             Item::Struct(ref mut struct_) => &mut struct_.attrs,
@@ -52,12 +39,7 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
             Item::Const(ref mut const_) => &mut const_.attrs,
             Item::Impl(ref mut impl_) => &mut impl_.attrs,
             Item::Mod(mod_) => {
-              let mod_in_mod = mod_
-                .attrs
-                .iter()
-                .enumerate()
-                .find(|(_, m)| m.path().is_ident("napi"));
-              if mod_in_mod.is_some() {
+              if mod_.attrs.iter().any(is_napi_attr) {
                 bail_span!(
                   mod_,
                   "napi module cannot be nested under another napi module"
@@ -68,11 +50,11 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
             }
             _ => &mut empty_attrs,
           },
-        ) {
+        )? {
           let napi = item.parse_napi(&mut tokens, &item_opts)?;
           item_opts.check_used()?;
           napi.try_to_tokens(&mut tokens)?;
-          typedef::output_type_def(&napi);
+          typedef::output_type_def(&napi)?;
         } else {
           item.to_tokens(&mut tokens);
         };
@@ -94,40 +76,230 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
     let napi = item.parse_napi(&mut tokens, &opts)?;
     opts.check_used()?;
     napi.try_to_tokens(&mut tokens)?;
-    typedef::output_type_def(&napi);
+    typedef::output_type_def(&napi)?;
     Ok(tokens)
   }
 }
 
+fn is_napi_attr(attr: &Attribute) -> bool {
+  attr
+    .path()
+    .segments
+    .last()
+    .is_some_and(|segment| segment.ident == "napi")
+}
+
 fn replace_napi_attr_in_mod(
-  js_namespace: String,
+  js_namespace: &str,
+  js_namespace_span: Span,
   attrs: &mut Vec<syn::Attribute>,
-) -> Option<BindgenAttrs> {
-  let napi_attr = attrs
-    .iter()
-    .enumerate()
-    .find(|(_, m)| m.path().is_ident("napi"));
+) -> BindgenResult<Option<BindgenAttrs>> {
+  let napi_attr = attrs.iter().enumerate().find(|(_, m)| is_napi_attr(m));
 
   if let Some((index, napi_attr)) = napi_attr {
-    // adds `namespace = #js_namespace` into `#[napi]` attribute
-    let new_attr = match &napi_attr.meta {
-      syn::Meta::Path(_) => {
-        syn::parse_quote!(#[napi(namespace = #js_namespace)])
-      }
+    let mut struct_opts = match &napi_attr.meta {
+      syn::Meta::Path(_) => BindgenAttrs {
+        exists: true,
+        span: napi_attr.span(),
+        ..Default::default()
+      },
       syn::Meta::List(list) => {
-        let existing = list.tokens.clone();
-        syn::parse_quote!(#[napi(#existing, namespace = #js_namespace)])
+        let mut parsed: BindgenAttrs = syn::parse2(list.tokens.clone())?;
+        parsed.exists = true;
+        parsed.span = napi_attr.span();
+        parsed
       }
-      syn::Meta::NameValue(name_value) => {
-        let existing = &name_value.value;
-        syn::parse_quote!(#[napi(#existing, namespace = #js_namespace)])
+      syn::Meta::NameValue(_) => {
+        bail_span!(napi_attr, "invalid #[napi] attribute");
       }
     };
 
-    let struct_opts = BindgenAttrs::try_from(&new_attr).unwrap();
+    if !struct_opts
+      .attrs
+      .iter()
+      .any(|(_, attr)| matches!(attr, BindgenAttr::Namespace(..)))
+    {
+      // The module name becomes the item's namespace here without being parsed, so it is
+      // checked here, and only when an item uses it.
+      crate::parser::attrs::validate_namespace(js_namespace).map_err(|message| {
+        napi_derive_backend::Diagnostic::span_error(js_namespace_span, message)
+      })?;
+      // adds `namespace = #js_namespace` into `#[napi]` attribute unless explicitly overridden
+      struct_opts.attrs.push((
+        Cell::new(false),
+        BindgenAttr::Namespace(
+          Span::call_site(),
+          js_namespace.to_owned(),
+          Span::call_site(),
+        ),
+      ));
+    }
+
     attrs.remove(index);
-    Some(struct_opts)
+    Ok(Some(struct_opts))
   } else {
-    None
+    Ok(None)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::expand;
+  use proc_macro2::TokenStream;
+  use quote::quote;
+
+  fn expand_mod(attr: TokenStream, input: TokenStream) -> String {
+    expand(attr, input).unwrap().to_string()
+  }
+
+  #[test]
+  fn assigns_module_namespace_for_qualified_and_alternate_delimiter_attrs() {
+    let expanded = expand_mod(
+      quote! {},
+      quote! {
+        mod my_mod {
+          #[napi_derive::napi]
+          pub fn bare_qualified() -> u32 { 1 }
+
+          #[::napi_derive::napi()]
+          pub fn empty_absolute() -> u32 { 2 }
+
+          #[napi_derive::napi(js_name = "withTrailing",)]
+          pub fn trailing_comma() -> u32 { 3 }
+
+          #[napi_derive::napi { js_name = "braceDelim" }]
+          pub fn brace_delim() -> u32 { 4 }
+
+          #[::napi_derive::napi[js_name = "bracketDelim"]]
+          pub fn bracket_delim() -> u32 { 5 }
+        }
+      },
+    );
+
+    assert_eq!(expanded.matches("Some (\"my_mod\\0\")").count(), 10);
+    assert!(expanded.contains("\"bareQualified\\0\""));
+    assert!(expanded.contains("\"emptyAbsolute\\0\""));
+    assert!(expanded.contains("\"withTrailing\\0\""));
+    assert!(expanded.contains("\"braceDelim\\0\""));
+    assert!(expanded.contains("\"bracketDelim\\0\""));
+  }
+
+  #[test]
+  fn preserves_explicit_child_namespace_under_strict_mode() {
+    let expanded = expand_mod(
+      quote! {},
+      quote! {
+        mod my_mod {
+          #[napi_derive::napi(namespace = "custom_ns")]
+          pub fn explicit_other() -> u32 { 1 }
+
+          #[napi_derive::napi(namespace = "my_mod")]
+          pub fn explicit_same() -> u32 { 2 }
+        }
+      },
+    );
+
+    assert_eq!(expanded.matches("Some (\"custom_ns\\0\")").count(), 2);
+    assert_eq!(expanded.matches("Some (\"my_mod\\0\")").count(), 2);
+    assert!(expanded.contains("Some (\"custom_ns\\0\") , \"explicitOther\\0\""));
+    assert!(expanded.contains("Some (\"my_mod\\0\") , \"explicitSame\\0\""));
+  }
+
+  #[test]
+  fn returns_diagnostic_instead_of_panicking_on_invalid_child_attr() {
+    let err = expand(
+      quote! {},
+      quote! {
+        mod my_mod {
+          #[napi_derive::napi(unknown_option)]
+          pub fn bad_option() -> u32 { 1 }
+        }
+      },
+    )
+    .unwrap_err();
+    assert!(format!("{err:?}").contains("unknown attribute"));
+
+    let err = expand(
+      quote! {},
+      quote! {
+        mod my_mod {
+          #[napi_derive::napi = "bad"]
+          pub fn bad_name_value() -> u32 { 1 }
+        }
+      },
+    )
+    .unwrap_err();
+    assert!(format!("{err:?}").contains("invalid #[napi] attribute"));
+  }
+
+  #[test]
+  fn validates_the_module_js_name_as_a_namespace() {
+    let err = expand(
+      quote! { js_name = "a..b" },
+      quote! {
+        mod my_mod {
+          #[napi_derive::napi]
+          pub fn f() -> u32 { 1 }
+        }
+      },
+    )
+    .unwrap_err();
+    assert!(format!("{err:?}").contains("namespace `a..b` has an empty segment"));
+
+    let err = expand(
+      quote! {},
+      quote! {
+        mod my_mod {
+          #[napi_derive::napi(namespace = "x.__proto__")]
+          pub fn f() -> u32 { 1 }
+        }
+      },
+    )
+    .unwrap_err();
+    assert!(format!("{err:?}").contains("must not use `__proto__`"));
+
+    // The module name is only checked when an item takes it as its namespace.
+    let expanded = expand_mod(
+      quote! { js_name = "" },
+      quote! {
+        mod my_mod {
+          #[napi_derive::napi(namespace = "x")]
+          pub fn f() -> u32 { 1 }
+        }
+      },
+    );
+    assert!(expanded.contains("Some (\"x\\0\")"));
+
+    let expanded = expand_mod(
+      quote! { js_name = "outer.inner" },
+      quote! {
+        mod my_mod {
+          #[napi_derive::napi]
+          pub fn f() -> u32 { 1 }
+        }
+      },
+    );
+    assert!(expanded.contains("Some (\"outer.inner\\0\")"));
+  }
+
+  #[test]
+  fn rejects_nested_napi_mod_for_short_qualified_and_absolute_paths() {
+    for inner_attr in [
+      quote! { #[napi] },
+      quote! { #[napi_derive::napi] },
+      quote! { #[::napi_derive::napi] },
+    ] {
+      let err = expand(
+        quote! {},
+        quote! {
+          mod outer {
+            #inner_attr
+            mod inner {}
+          }
+        },
+      )
+      .unwrap_err();
+      assert!(format!("{err:?}").contains("napi module cannot be nested under another napi module"));
+    }
   }
 }

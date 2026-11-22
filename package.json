@@ -78,7 +78,7 @@
     "lerna": "^10.0.0",
     "lint-staged": "^17.0.7",
     "npm-run-all2": "^9.0.1",
-    "oxfmt": "^0.75.0",
+    "oxfmt": "^0.79.0",
     "oxlint": "^1.81.0",
     "shx": "^0.4.0",
     "sinon": "^22.0.0",
@@ -88,13 +88,10 @@
   },
   "packageManager": "yarn@4.18.1",
   "resolutions": {
+    "@napi-rs/wasm-runtime": "workspace:",
     "nx/undici": "^8.0.0",
     "node-inspect-extracted": "patch:node-inspect-extracted@npm%3A3.0.0#~/.yarn/patches/node-inspect-extracted-npm-3.0.0-f661b6c334.patch",
     "buffer@npm:^6.0.3": "patch:buffer@npm%3A6.0.3#~/.yarn/patches/buffer-npm-6.0.3-cd90dfedfe.patch",
-    "emnapi": "2.0.0-beta.3",
-    "@emnapi/core": "2.0.0-beta.3",
-    "@emnapi/runtime": "2.0.0-beta.3",
-    "@emnapi/wasi-threads": "2.2.0",
     "miniflare/sharp": "^0.35.5",
     "miniflare/undici": "^8.0.0"
   }

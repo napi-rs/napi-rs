@@ -23,6 +23,7 @@ impl ToTypeDef for NapiEnum {
       original_name: Some(self.name.to_string()),
       def: self.gen_ts_variants(),
       js_doc: JSDoc::new(&self.comments),
+      type_refs: Default::default(),
       js_mod: self.js_mod.to_owned(),
     })
   }

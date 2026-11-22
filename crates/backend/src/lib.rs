@@ -47,9 +47,9 @@ macro_rules! napi_ast_impl {
 		#[cfg(feature = "type-def")]
 		impl ToTypeDef for Napi {
 			fn to_type_def(&self) -> Option<TypeDef> {
-				match self.item {
+				typegen::collect_type_refs(|| match self.item {
           $( NapiItem::$v(ref ast) => ast.to_type_def() ),*
-        }
+        })
 			}
 		}
 

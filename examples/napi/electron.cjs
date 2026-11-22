@@ -33,10 +33,27 @@ const createWindowAndReload = async () => {
     // reload to check if there is any crash
     win.reload()
 
-    // make sure the renderer process is still alive
-    ipcMain.once('pong', () => {
+    // make sure the renderer process is still alive, and that its env (freed on every
+    // reload) settles AsyncTask promises through the thenable
+    ipcMain.once('pong', (_event, payload) => {
       console.info('pong')
-      resolve()
+      try {
+        assert.deepStrictEqual(payload, {
+          mode: 'thenable',
+          value: 0,
+          statesFreed: 1,
+          evalBlocked: true,
+          wrappersCompiled: 1,
+          wrapperFallbacks: 0,
+          asyncFnValue: 1,
+          asyncFnThenable: 1,
+          asyncFnFallbacks: 0,
+          asyncFnStatesFreed: 1,
+        })
+        resolve()
+      } catch (error) {
+        reject(error)
+      }
     })
 
     // Wait for a while to make sure if a crash happens, the 'resolve' function should be called after the crash
@@ -63,7 +80,35 @@ async function main() {
     uint8ClampedSliceFromExternalReadBack,
     createExternalTypedArray,
     createReadableStream,
+    asyncTaskPromiseSettleMode,
+    asyncTaskCounted,
+    asyncTaskSettleCounters,
+    asyncFnSleep,
   } = require('./index.cjs')
+
+  // Electron always uses the thenable path, in its main process too.
+  assert.strictEqual(asyncTaskPromiseSettleMode(), 'thenable')
+  const before = asyncTaskSettleCounters()
+  assert.strictEqual(await asyncTaskCounted(), 0)
+  const after = asyncTaskSettleCounters()
+  assert.strictEqual(after.promiseStatesFreed - before.promiseStatesFreed, 1)
+  assert.strictEqual(
+    after.promiseWrappersCompiled - before.promiseWrappersCompiled,
+    1,
+  )
+  assert.strictEqual(
+    after.promiseWrapperFallbacks - before.promiseWrapperFallbacks,
+    0,
+  )
+  // An async fn promise is made by the same wrapper, without a deferred.
+  assert.strictEqual(await asyncFnSleep(1), 1)
+  const end = asyncTaskSettleCounters()
+  assert.strictEqual(
+    end.jsDeferredThenableCreated - after.jsDeferredThenableCreated,
+    1,
+  )
+  assert.strictEqual(end.jsDeferredFallbacks - after.jsDeferredFallbacks, 0)
+  assert.strictEqual(end.promiseStatesFreed - after.promiseStatesFreed, 1)
 
   const buf = await readFileAsync(__filename)
   assert(FILE_CONTENT === buf.toString('utf8'))

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.16.2](https://github.com/napi-rs/napi-rs/compare/napi-v3.16.1...napi-v3.16.2) - 2026-11-11
+
+### Fixed
+
+- *(napi)* per-env teardown for multi-load addons and leak-free AsyncTask promises ([#3689](https://github.com/napi-rs/napi-rs/pull/3689))
+
 ## [3.16.1](https://github.com/napi-rs/napi-rs/compare/napi-v3.16.0...napi-v3.16.1) - 2026-10-30
 
 ### Fixed

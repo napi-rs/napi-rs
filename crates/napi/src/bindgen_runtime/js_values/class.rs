@@ -10,7 +10,7 @@ use crate::{
     JsObjectValue, MaybeTypeTag, Object, ObjectFinalize, Reference, Result, TypeName,
     ValidateNapiValue,
   },
-  check_status, sys, Env, JsValue, Property, PropertyAttributes, Value, ValueType,
+  check_status, sys, Env, JsValue, PropertyAttributes, Value, ValueType,
 };
 
 #[derive(Clone, Copy)]
@@ -144,26 +144,25 @@ impl<'env, T: 'env> ClassInstance<'env, T> {
   ) -> Result<ClassInstance<'this, T>>
   where
     'this: 'env,
-    // Transitively required (not collateral): `.with_value(self)` below needs
-    // `ClassInstance<T>: JsValue`, which needs `T: MaybeTypeTag`. Vacuous without
-    // `napi8` and on all wasm targets, so the default and wasm API are unchanged.
+    // Kept for backwards compatibility (previously required by `Property::with_value(self)`).
+    // Vacuous without `napi8` and on all wasm targets, so the default and wasm API are unchanged.
     T: MaybeTypeTag,
     U: FromNapiValue + JsValue<'this>,
   {
-    let property = Property::new()
-      .with_utf8_name(name)?
-      .with_value(self)
-      .with_property_attributes(attributes);
+    let name = CString::new(name)?;
+    let descriptor = sys::napi_property_descriptor {
+      utf8name: name.as_ptr(),
+      name: ptr::null_mut(),
+      method: None,
+      getter: None,
+      setter: None,
+      value: self.value,
+      attributes: attributes.into(),
+      data: ptr::null_mut(),
+    };
 
     check_status!(
-      unsafe {
-        sys::napi_define_properties(
-          self.env,
-          this.object.value().value,
-          1,
-          [property.raw(self.env)?].as_ptr(),
-        )
-      },
+      unsafe { sys::napi_define_properties(self.env, this.object.value().value, 1, &descriptor) },
       "Failed to define properties on This in `assign_to_this_with_attributes`"
     )?;
 

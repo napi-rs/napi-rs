@@ -127,23 +127,60 @@ export interface UserNapiConfig {
     maximumMemory?: number
 
     /**
-     * Whether the generated `<packageName>-wasm32-wasi` package is declared as
-     * an `optionalDependency` of the root package.
+     * Linear-memory shadow stack size (`-zstack-size`) in **bytes** (unlike
+     * `initialMemory`, `threadlessInitialMemory`, and `maximumMemory`, which
+     * are measured in 64 KiB WebAssembly pages).
      *
-     * When native targets are configured the WASI package is a fallback for
-     * hosts that cannot load a `.node` binary, so declaring it would make every
-     * consumer download the `.wasm` binary they will never load. It is
-     * therefore omitted by default and is expected to be installed on demand by
-     * the environments that need it.
+     * Must be a positive 16-byte-aligned integer below 4 GiB (`4294967296`
+     * bytes). Sizes only the main thread's stack; worker threads on
+     * `wasm32-wasip1-threads` allocate their stacks on the heap via `malloc`.
      *
-     * When WASI is the only configured target it is the primary artifact and is
-     * declared by default.
+     * Forwarded to `napi-build` via `NAPI_WASI_STACK_SIZE` (requires
+     * `napi-build >= 2.7.0`). Full setting priority order (highest to lowest):
+     * 1. `NAPI_WASI_STACK_SIZE` environment variable (non-empty; an empty
+     *    string `""` is treated as unset)
+     * 2. `napi.wasm.stackSizeBytes` in `package.json` (forwarded by
+     *    `@napi-rs/cli` as `NAPI_WASI_STACK_SIZE` when the env var is unset
+     *    or empty)
+     * 3. `napi_build::SetupOptions::wasi_stack_size(...)` in `build.rs`
+     * 4. Default: `64_000_000` bytes (~61.04 MiB, set by `napi-build`)
      *
-     * Set this explicitly to override either default.
+     * @default 64000000
+     */
+    stackSizeBytes?: number
+
+    /**
+     * Whether the generated WASI packages are declared as
+     * `optionalDependencies` of the root package.
      *
-     * @default true when every configured target is WASI, false otherwise
+     * When native targets are also configured, the WASI packages carry
+     * `cpu: ["wasm32"]`, so package managers skip them on ordinary hosts.
+     * Environments that need the WASI fallback install it with
+     * `npm install --cpu=wasm32` or yarn's `supportedArchitectures.cpu`.
+     *
+     * Set this to `false` to leave the WASI packages out.
+     *
+     * @default true
      */
     optionalDependency?: boolean
+
+    /**
+     * Whether the generated WASI packages declare `cpu: ["wasm32"]` when
+     * native targets are also configured.
+     *
+     * Set this to `false` so package managers do not skip the WASI package on
+     * any host architecture, for example because the root `browser.js` imports
+     * it by name and browser bundlers must resolve it. Every consumer then
+     * downloads the `.wasm` binary. The package is still an optional
+     * dependency, so `--omit=optional` or a Node.js version outside its
+     * `engines.node` range still skips it.
+     *
+     * It has no effect when WASI is the only configured target, because those
+     * packages never declare `cpu`.
+     *
+     * @default true
+     */
+    cpu?: boolean
 
     /**
      * Whether the generated WASI loaders bootstrap the `napi-async-runtime`
