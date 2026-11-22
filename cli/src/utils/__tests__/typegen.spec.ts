@@ -136,6 +136,31 @@ test('nested namespaces export their root object once', async (t) => {
   t.deepEqual(exports, ['only', 'outer'])
 })
 
+test('an export and a namespace of the same name are exported once', async (t) => {
+  const { dts, exports } = await processInlineTypeDef([
+    { kind: 'fn', name: 'Deep', def: 'function Deep(): void' },
+    { kind: 'fn', name: 'x', def: 'function x(): void', js_mod: 'Deep.left' },
+    { kind: 'fn', name: 'y', def: 'function y(): void', js_mod: 'Deep' },
+  ])
+  t.true(dts.includes('export declare function Deep(): void'))
+  t.true(dts.includes('export declare namespace Deep.left {'))
+  t.deepEqual(exports, ['Deep'])
+})
+
+test('`globalThis` is reserved as a namespace root', async (t) => {
+  await t.throwsAsync(
+    processInlineTypeDef([
+      {
+        kind: 'fn',
+        name: 'f',
+        def: 'function f(): void',
+        js_mod: 'globalThis.foo',
+      },
+    ]),
+    { message: /`globalThis` is reserved/ },
+  )
+})
+
 test('well-known symbol members are not taken as the async iterator helper', async (t) => {
   // `#[napi(well_known_symbol = "asyncIterator")]` emits a `globalThis` key,
   // which the `#[napi(async_iterator)]` rewrite must leave alone.

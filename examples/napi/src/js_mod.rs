@@ -91,6 +91,12 @@ pub fn xxh3_nested_plus(a: u32, b: u32) -> u32 {
   a + b
 }
 
+/// `deep` is also the root of the `deep.*` namespaces, which are set on this function.
+#[napi(js_name = "deep")]
+pub fn deep_root() -> String {
+  "root".to_owned()
+}
+
 #[napi(namespace = "deep.left")]
 pub fn deep_left() -> String {
   "left".to_owned()
@@ -115,4 +121,10 @@ impl DeepRight {
   pub fn value(&self) -> u32 {
     self.value
   }
+}
+
+/// Set on the `DeepRight` class, next to its statics.
+#[napi(namespace = "deep.right.DeepRight")]
+pub fn describe() -> String {
+  "DeepRight".to_owned()
 }

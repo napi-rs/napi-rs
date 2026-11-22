@@ -524,7 +524,10 @@ export async function processTypeDefs(
   return {
     dts,
     dtsWithTypeImportMarkers,
-    exports,
+    // One runtime export can come from several defs: `fn deep` and `namespace deep.left`
+    // are both `deep`, and so are `deep.left` and `deep.right`. The ESM loaders declare
+    // each name once (`const { deep } = ...`), and a repeat is a SyntaxError.
+    exports: [...new Set(exports)],
     typeImports,
   }
 }
@@ -540,12 +543,14 @@ function renderTypeDefs(
   for (const groupedDefs of groupedTypeDefs) {
     for (const [namespace, namespaceDefs] of groupedDefs) {
       if (namespace !== TOP_LEVEL_NAMESPACE) {
-        if (namespace === 'globalThis') {
+        // `a.b` is exported as the `a` object, so `a` is the top-level name.
+        const [exportName] = namespace.split('.')
+        if (exportName === 'globalThis') {
           throw new Error(
             'The export name `globalThis` is reserved by NAPI-RS type generation',
           )
         }
-        topLevelExportNames.add(namespace)
+        topLevelExportNames.add(exportName)
       }
       for (const def of namespaceDefs) {
         if (def.name === 'globalThis' || def.original_name === 'globalThis') {
@@ -622,10 +627,7 @@ function renderTypeDefs(
               })
               .join('\n\n')
           } else {
-            const [exportName] = namespace.split('.')
-            if (!exports.includes(exportName)) {
-              exports.push(exportName)
-            }
+            exports.push(namespace.split('.')[0])
             let declaration = ''
             declaration += `export declare namespace ${namespace} {\n`
             for (const def of defs) {

@@ -1403,6 +1403,9 @@ export interface DatesWithTimeZone {
 
 export declare function dateToNumber(input: Date): number
 
+/** `deep` is also the root of the `deep.*` namespaces, which are set on this function. */
+export declare function deep(): string
+
 /** This is a const */
 export declare const DEFAULT_COST: number
 
@@ -2641,6 +2644,11 @@ export declare namespace deep.right {
     constructor(value: number)
     value(): number
   }
+}
+
+export declare namespace deep.right.DeepRight {
+  /** Set on the `DeepRight` class, next to its statics. */
+  export function describe(): string
 }
 
 export declare namespace xxh2 {

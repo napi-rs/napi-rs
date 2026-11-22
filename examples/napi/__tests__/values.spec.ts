@@ -2477,6 +2477,10 @@ test('nested namespaces', (t) => {
   t.is(deep.left.deepLeft(), 'left')
   t.is(deep.left.inner.DEEP_DEPTH, 3)
   t.is(new deep.right.DeepRight(7).value(), 7)
+  // A function or class keeps its identity and also holds the namespace under its name.
+  t.is(deep(), 'root')
+  t.deepEqual(Object.keys(deep).sort(), ['left', 'right'])
+  t.is(deep.right.DeepRight.describe(), 'DeepRight')
 })
 
 BigIntTest('from i128 i64', (t) => {
