@@ -334,6 +334,38 @@ export declare class EagerReleaseHolder {
 }
 
 /**
+ * This type implements JavaScript's async iterable protocol.
+ * It can be used with `for await...of` loops.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_async_iterator_and_async_iterable_protocols
+ */
+export declare class FailingAsyncGenerator {
+  constructor()
+  get nextCalls(): number
+  get returnCalls(): number
+  [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<FailingAsyncGenerator, number, FallibleGeneratorArg, FallibleGeneratorArg>
+}
+
+/**
+ * This type implements JavaScript's iterable iterator protocol.
+ * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
+ *
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Iterator#iterator_helper_methods
+ * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Iteration_protocols#the_iterator_and_iterable_protocols
+ */
+export declare class FailingGenerator {
+  constructor()
+  get nextCalls(): number
+  get returnCalls(): number
+  [globalThis.Symbol.iterator](): this
+  next(...[value]: [] | [FallibleGeneratorArg]): globalThis.IteratorResult<FallibleGeneratorYield, FallibleGeneratorArg | undefined>
+  return(...[value]: [] | [FallibleGeneratorArg]): globalThis.IteratorResult<FallibleGeneratorYield, FallibleGeneratorArg | undefined>
+  throw(exception?: unknown): globalThis.IteratorResult<FallibleGeneratorYield, FallibleGeneratorArg | undefined>
+}
+
+export interface FailingGenerator extends globalThis.Omit<globalThis.IteratorObject<FallibleGeneratorYield, FallibleGeneratorArg | undefined, FallibleGeneratorArg>, 'next' | 'return' | 'throw'> {}
+
+/**
  * This type implements JavaScript's iterable iterator protocol.
  * On runtimes with `Iterator` helpers, its prototype also inherits those helpers.
  *
@@ -1565,6 +1597,10 @@ export type ExternalLinterLoadPluginCb2 = ((arg: string) => PluginLoadResult)
 export declare function f32ArrayToArray(input: Float32Array): Array<number>
 
 export declare function f64ArrayToArray(input: Float64Array): Array<number>
+
+export type FallibleGeneratorArg = string
+
+export type FallibleGeneratorYield = number
 
 export declare function fibonacci(n: number): number
 
