@@ -15,6 +15,7 @@ async function processInlineTypeDef(
   lines: Array<Record<string, unknown>>,
   constEnum = true,
   runtimeStringEnum = false,
+  reservedDeclarationText = '',
 ) {
   const dir = await mkdtemp(join(tmpdir(), 'napi-typegen-'))
   const file = join(dir, 'defs')
@@ -23,7 +24,14 @@ async function processInlineTypeDef(
     lines.map((line) => JSON.stringify(line)).join('\n') + '\n',
   )
   try {
-    return await processTypeDef(file, constEnum, runtimeStringEnum)
+    return reservedDeclarationText
+      ? await processTypeDefs(
+          [file],
+          constEnum,
+          runtimeStringEnum,
+          reservedDeclarationText,
+        )
+      : await processTypeDef(file, constEnum, runtimeStringEnum)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -177,6 +185,340 @@ test('empty namespace segments and `__proto__` are rejected', async (t) => {
       jsMod,
     )
   }
+})
+
+test('a shadowed reference from a namespace goes through a root alias', async (t) => {
+  const { dts } = await processInlineTypeDef([
+    { kind: 'interface', name: 'BObj', def: 'y: number', js_mod: 'b' },
+    { kind: 'interface', name: 'AbObj', def: 'z: number', js_mod: 'a.b' },
+    { kind: 'interface', name: 'Shared', def: 'top: number' },
+    { kind: 'interface', name: 'Shared', def: 'inner: string', js_mod: 'a' },
+    {
+      kind: 'fn',
+      name: 'f',
+      // Inside `namespace a.b`, `b` is `a.b`.
+      def: 'function f(o: b.BObj): Array<b.BObj>',
+      js_mod: 'a.b',
+      root_refs: ['b.BObj'],
+    },
+    {
+      kind: 'fn',
+      name: 'g',
+      // Inside `namespace a`, `Shared` is `a.Shared`.
+      def: 'function g(s: Shared, own: a.Shared): Shared',
+      js_mod: 'a',
+      root_refs: ['Shared', 'a.Shared'],
+    },
+    {
+      kind: 'fn',
+      name: 'h',
+      // Hand-written `ts_type` text is not recorded and stays as written.
+      def: 'function h(o: b.AbObj): void',
+      js_mod: 'a.b',
+    },
+  ])
+  t.true(
+    dts.includes(
+      'export function f(o: __NapiRsRoot_b.BObj): Array<__NapiRsRoot_b.BObj>',
+    ),
+  )
+  t.true(
+    dts.includes(
+      'export function g(s: __NapiRsRoot_Shared, own: a.Shared): __NapiRsRoot_Shared',
+    ),
+  )
+  t.true(dts.includes('export function h(o: b.AbObj): void'))
+  t.true(
+    dts.endsWith(
+      '\n\nimport __NapiRsRoot_b = b\ntype __NapiRsRoot_Shared = Shared\n',
+    ),
+  )
+})
+
+test('a root reference nothing shadows is left as written', async (t) => {
+  const { dts } = await processInlineTypeDef([
+    { kind: 'interface', name: 'BObj', def: 'y: number', js_mod: 'b' },
+    {
+      kind: 'fn',
+      name: 'f',
+      def: 'function f(o: b.BObj): void',
+      js_mod: 'a',
+      root_refs: ['b.BObj'],
+    },
+  ])
+  t.true(dts.includes('export function f(o: b.BObj): void'))
+  t.false(dts.includes('__NapiRsRoot'))
+})
+
+test('a root alias does not take a name the declarations use', async (t) => {
+  const { dts } = await processInlineTypeDef([
+    { kind: 'interface', name: '__NapiRsRoot_b', def: 'x: number' },
+    { kind: 'interface', name: 'BObj', def: 'y: number', js_mod: 'b' },
+    { kind: 'interface', name: 'AbObj', def: 'z: number', js_mod: 'a.b' },
+    {
+      kind: 'fn',
+      name: 'f',
+      def: 'function f(o: b.BObj): void',
+      js_mod: 'a.b',
+      root_refs: ['b.BObj'],
+    },
+  ])
+  t.true(dts.includes('export function f(o: __NapiRsRoot_b_1.BObj): void'))
+  t.true(dts.endsWith('\n\nimport __NapiRsRoot_b_1 = b\n'))
+})
+
+test('a type declared after its use is written by its JS path', async (t) => {
+  const { dts } = await processInlineTypeDef([
+    {
+      kind: 'fn',
+      name: 'f',
+      // napi-derive writes the Rust name of a type it has not seen yet.
+      def: 'function f(o: MyType, r: Renamed, c: Later): MyType | null',
+      unresolved_refs: ['MyType', 'Renamed', 'Later'],
+    },
+    {
+      kind: 'fn',
+      name: 'g',
+      def: 'function g(o: MyType): void',
+      js_mod: 'b',
+      unresolved_refs: ['MyType'],
+    },
+    {
+      kind: 'interface',
+      name: 'MyType',
+      original_name: 'MyType',
+      def: 'x: number',
+      js_mod: 'a',
+    },
+    {
+      kind: 'interface',
+      name: 'JsRenamed',
+      original_name: 'Renamed',
+      def: 'r: number',
+    },
+    { kind: 'struct', name: 'Later', original_name: 'Later', def: '' },
+  ])
+  t.true(
+    dts.includes(
+      'export declare function f(o: a.MyType, r: JsRenamed, c: Later): a.MyType | null',
+    ),
+  )
+  t.true(dts.includes('export function g(o: a.MyType): void'))
+})
+
+test('a Rust name shared by two types is left as written', async (t) => {
+  const { dts } = await processInlineTypeDef([
+    {
+      kind: 'fn',
+      name: 'f',
+      def: 'function f(o: Options): void',
+      unresolved_refs: ['Options'],
+    },
+    {
+      kind: 'interface',
+      name: 'Options',
+      original_name: 'Options',
+      def: 'x: number',
+      js_mod: 'a',
+    },
+    {
+      kind: 'interface',
+      name: 'Options',
+      original_name: 'Options',
+      def: 'y: number',
+      js_mod: 'b',
+    },
+  ])
+  t.true(dts.includes('export declare function f(o: Options): void'))
+})
+
+test('hand-written text in another declaration is not taken for a recorded reference', async (t) => {
+  const { dts } = await processInlineTypeDef([
+    {
+      kind: 'interface',
+      name: 'Cfg',
+      original_name: 'Cfg',
+      def: 'top: number',
+    },
+    {
+      kind: 'interface',
+      name: 'Cfg',
+      original_name: 'ACfg',
+      def: 'inner: string',
+      js_mod: 'a',
+    },
+    {
+      kind: 'fn',
+      name: 'useTop',
+      def: 'function useTop(c: Cfg): number',
+      js_mod: 'a',
+      root_refs: ['Cfg'],
+    },
+    {
+      kind: 'fn',
+      name: 'handWritten',
+      // `ts_args_type = "c: Cfg"`, meaning `a.Cfg`.
+      def: 'function handWritten(c: Cfg): number',
+      js_mod: 'a',
+    },
+    { kind: 'struct', name: 'Client', def: '', js_mod: 'a' },
+    {
+      kind: 'impl',
+      name: 'Client',
+      def: 'take(c: Cfg): void',
+      js_mod: 'a',
+      root_refs: ['Cfg'],
+    },
+  ])
+  t.true(dts.includes('export function useTop(c: __NapiRsRoot_Cfg): number'))
+  t.true(dts.includes('export function handWritten(c: Cfg): number'))
+  // An `impl` block's references belong to its class.
+  t.true(dts.includes('take(c: __NapiRsRoot_Cfg): void'))
+})
+
+test('a top-level type declared after its use from a namespace that shadows it goes through a root alias', async (t) => {
+  const { dts } = await processInlineTypeDef([
+    {
+      kind: 'interface',
+      name: 'Late',
+      original_name: 'ALate',
+      def: 'inner: string',
+      js_mod: 'a',
+    },
+    {
+      kind: 'fn',
+      name: 'useLate',
+      def: 'function useLate(l: Late): number',
+      js_mod: 'a',
+      unresolved_refs: ['Late'],
+    },
+    {
+      kind: 'interface',
+      name: 'Late',
+      original_name: 'Late',
+      def: 'top: number',
+    },
+  ])
+  t.true(dts.includes('export function useLate(l: __NapiRsRoot_Late): number'))
+  t.true(dts.endsWith('\n\ntype __NapiRsRoot_Late = Late\n'))
+})
+
+test('a reference to a type whose Rust name two types share is left as written', async (t) => {
+  // napi-derive keys types by Rust name, so it may have named the wrong one.
+  const { dts } = await processInlineTypeDef([
+    {
+      kind: 'interface',
+      name: 'Shared',
+      original_name: 'Shared',
+      def: 'inner: string',
+      js_mod: 'a',
+    },
+    {
+      kind: 'interface',
+      name: 'Shared',
+      original_name: 'Shared',
+      def: 'top: number',
+    },
+    {
+      kind: 'fn',
+      name: 'g',
+      def: 'function g(s: Shared): string',
+      js_mod: 'a',
+      root_refs: ['Shared'],
+    },
+  ])
+  t.true(dts.includes('export function g(s: Shared): string'))
+  t.false(dts.includes('__NapiRsRoot'))
+})
+
+test('generic types keep their type parameters when references are fixed', async (t) => {
+  const { dts } = await processInlineTypeDef([
+    {
+      kind: 'fn',
+      name: 'usePair',
+      def: 'function usePair(v: Pair<number>, b: Buffer): number',
+      def_with_type_import_markers:
+        'function usePair(v: Pair<number>, b: __NAPI_RS_TYPE_IMPORT_BUFFER__): number',
+      type_imports: [
+        {
+          marker: '__NAPI_RS_TYPE_IMPORT_BUFFER__',
+          name: 'Buffer',
+          module: 'buffer',
+        },
+      ],
+      js_mod: 'y',
+      unresolved_refs: ['Pair'],
+    },
+    {
+      kind: 'type',
+      name: 'Pair<T>',
+      original_name: 'Pair',
+      def: 'T | undefined | null',
+      js_mod: 'x',
+    },
+    {
+      kind: 'type',
+      name: 'Wrap<T = void>',
+      original_name: 'Wrap',
+      def: 'T | undefined | null',
+    },
+    {
+      kind: 'interface',
+      name: 'Wrap',
+      original_name: 'SWrap',
+      def: 'v: number',
+      js_mod: 's',
+    },
+    {
+      kind: 'fn',
+      name: 'useWrap',
+      def: 'function useWrap(v: Wrap<number>): number',
+      js_mod: 's',
+      root_refs: ['Wrap'],
+    },
+  ])
+  t.true(
+    dts.includes(
+      'export function usePair(v: x.Pair<number>, b: Buffer): number',
+    ),
+  )
+  t.true(
+    dts.includes(
+      'export function useWrap(v: __NapiRsRoot_Wrap<number>): number',
+    ),
+  )
+  t.true(dts.endsWith('\n\ntype __NapiRsRoot_Wrap<T = void> = Wrap<T>\n'))
+})
+
+test('a name the dts header declares counts as resolved', async (t) => {
+  const header = 'export interface Config { manual: number }\n'
+  const lines = [
+    {
+      kind: 'fn',
+      name: 'loadManual',
+      def: 'function loadManual(c: Config): number',
+      unresolved_refs: ['Config'],
+    },
+    {
+      kind: 'interface',
+      name: 'Config',
+      original_name: 'Config',
+      def: 'napiOnly: string',
+      js_mod: 'x',
+    },
+  ]
+  const withHeader = await processInlineTypeDef(lines, true, false, header)
+  t.true(
+    withHeader.dts.includes(
+      'export declare function loadManual(c: Config): number',
+    ),
+  )
+  const withoutHeader = await processInlineTypeDef(lines)
+  t.true(
+    withoutHeader.dts.includes(
+      'export declare function loadManual(c: x.Config): number',
+    ),
+  )
 })
 
 test('well-known symbol members are not taken as the async iterator helper', async (t) => {

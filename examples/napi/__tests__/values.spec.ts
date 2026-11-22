@@ -2475,6 +2475,9 @@ BigIntTest('js mod test', (t) => {
 test('nested namespaces', (t) => {
   t.is(xxh3.nested.xxh3NestedPlus(1, 2), 3)
   t.is(deep.left.deepLeft(), 'left')
+  const right: deep.right.DeepRight = deep.left.deepLeftToRight(5)
+  t.true(right instanceof deep.right.DeepRight)
+  t.is(right.value(), 5)
   t.is(deep.left.inner.DEEP_DEPTH, 3)
   t.is(new deep.right.DeepRight(7).value(), 7)
   // A function or class keeps its identity and also holds the namespace under its name.

@@ -117,6 +117,7 @@ impl ToTypeDef for NapiFn {
       def,
       js_mod: self.js_mod.to_owned(),
       js_doc: JSDoc::new(&self.comments),
+      type_refs: Default::default(),
     })
   }
 }

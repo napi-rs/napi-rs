@@ -102,6 +102,13 @@ pub fn deep_left() -> String {
   "left".to_owned()
 }
 
+/// Uses `DeepRight` before it is declared, from another namespace: the d.ts
+/// must name it `deep.right.DeepRight`.
+#[napi(namespace = "deep.left")]
+pub fn deep_left_to_right(value: u32) -> DeepRight {
+  DeepRight { value }
+}
+
 #[napi(namespace = "deep.left.inner")]
 pub const DEEP_DEPTH: u32 = 3;
 

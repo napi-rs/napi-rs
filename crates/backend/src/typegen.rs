@@ -24,6 +24,25 @@ pub struct TypeDef {
   pub def: String,
   pub js_mod: Option<String>,
   pub js_doc: JSDoc,
+  /// The `#[napi]` types this definition refers to, recorded while its type
+  /// strings were built. See [`TypeRefs`].
+  pub type_refs: TypeRefs,
+}
+
+/// The `#[napi]` type references a [`TypeDef`]'s `def` text contains, so the
+/// CLI can tell them apart from hand-written `ts_type` text when it fixes them
+/// up across namespaces.
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub struct TypeRefs {
+  /// References resolved to a type napi-derive had already seen, written as
+  /// its path from the module root (`a.b.Type`, or bare `Type` for a
+  /// top-level one). Inside a namespace the first segment can be shadowed
+  /// (`b` inside `namespace a.b`), which only the CLI can see.
+  pub root: Vec<String>,
+  /// Rust type names napi-derive had not seen yet when it wrote the
+  /// reference (a type declared later in the crate), written as-is. The CLI
+  /// maps them to the type's JS path once every definition is known.
+  pub unresolved: Vec<String>,
 }
 
 #[derive(Default, Debug)]
@@ -37,6 +56,52 @@ pub trait ToTypeDef {
 
 thread_local! {
   static ALIAS: RefCell<HashMap<String, String>> = Default::default();
+  static TYPE_REFS: RefCell<Option<TypeRefs>> = const { RefCell::new(None) };
+}
+
+/// Runs `f` (one item's `to_type_def`) and records the `#[napi]` type
+/// references its type strings contain into the returned definition.
+pub(crate) fn collect_type_refs(f: impl FnOnce() -> Option<TypeDef>) -> Option<TypeDef> {
+  let (type_def, type_refs) = with_type_refs(f);
+  type_def.map(|mut type_def| {
+    type_def.type_refs = type_refs;
+    type_def
+  })
+}
+
+/// Runs `f` and returns the `#[napi]` type references it recorded, apart from
+/// the ones of the definition being built around it.
+pub(crate) fn with_type_refs<T>(f: impl FnOnce() -> T) -> (T, TypeRefs) {
+  let outer = TYPE_REFS.with(|refs| refs.borrow_mut().replace(TypeRefs::default()));
+  let value = f();
+  let type_refs = TYPE_REFS.with(|refs| std::mem::replace(&mut *refs.borrow_mut(), outer));
+  (value, type_refs.unwrap_or_default())
+}
+
+/// Records `type_refs` again, for type text built earlier (a `Task`'s output
+/// type) that is written into the definition being built now.
+fn replay_type_refs(type_refs: &TypeRefs) {
+  for name in &type_refs.root {
+    record_type_ref(name, true);
+  }
+  for name in &type_refs.unresolved {
+    record_type_ref(name, false);
+  }
+}
+
+fn record_type_ref(name: &str, resolved: bool) {
+  TYPE_REFS.with(|refs| {
+    if let Some(refs) = refs.borrow_mut().as_mut() {
+      let list = if resolved {
+        &mut refs.root
+      } else {
+        &mut refs.unresolved
+      };
+      if !list.iter().any(|existing| existing == name) {
+        list.push(name.to_owned());
+      }
+    }
+  });
 }
 
 /// Registers `name` (a Rust type identifier) as an alias for `alias` (its JS
@@ -274,9 +339,28 @@ impl Display for TypeDef {
       String::new()
     };
 
+    let json_list = |key: &str, names: &[String]| {
+      if names.is_empty() {
+        return String::new();
+      }
+      let names = names
+        .iter()
+        .map(|name| format!("\"{}\"", escape_json(name)))
+        .collect::<Vec<_>>()
+        .join(", ");
+      format!(", \"{key}\": [{names}]")
+    };
+    // A root-qualified reference only needs fixing up inside a namespace.
+    let root_refs = if self.js_mod.is_some() {
+      json_list("root_refs", &self.type_refs.root)
+    } else {
+      String::new()
+    };
+    let unresolved_refs = json_list("unresolved_refs", &self.type_refs.unresolved);
+
     write!(
       f,
-      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}{}}}"#,
+      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}{}{}{}}}"#,
       escape_json(&self.kind),
       escape_json(&self.name),
       escape_json(&self.js_doc.to_string()),
@@ -284,6 +368,8 @@ impl Display for TypeDef {
       original_name,
       js_mod,
       imported_types,
+      root_refs,
+      unresolved_refs,
     )
   }
 }
@@ -548,7 +634,8 @@ fn handle_option_type(
 fn handle_async_task_type(args: &[(String, bool)]) -> Option<(String, bool)> {
   r#struct::TASK_STRUCTS.with(|t| {
     let (output_type, _) = args.first()?.to_owned();
-    if let Some(o) = t.borrow().get(&output_type) {
+    if let Some((o, type_refs)) = t.borrow().get(&output_type) {
+      replay_type_refs(type_refs);
       Some((format!("Promise<{o}>"), false))
     } else {
       Some(("Promise<unknown>".to_owned(), false))
@@ -562,7 +649,8 @@ fn handle_reference_type(args: &[(String, bool)], rust_ty: String) -> Option<(St
     // Reference<T> => T
     if let Some(arg) = args.first() {
       let (output_type, _) = arg.to_owned();
-      if let Some(o) = t.borrow().get(&output_type) {
+      if let Some((o, type_refs)) = t.borrow().get(&output_type) {
+        replay_type_refs(type_refs);
         Some((o.to_owned(), false))
       } else {
         Some((output_type, false))
@@ -678,6 +766,15 @@ fn handle_known_type(
 fn handle_generic_type(rust_ty: &str, args: &[(String, bool)]) -> Option<(String, bool)> {
   let type_alias =
     ALIAS.with(|aliases| aliases.borrow().get(rust_ty).map(|a| (a.to_owned(), false)));
+  match &type_alias {
+    Some((alias, _)) => record_type_ref(
+      alias.split_once('<').map_or(alias.as_str(), |(t, _)| t),
+      true,
+    ),
+    // `Self` is rewritten by the caller; anything else is a type not seen yet.
+    None if rust_ty != "Self" => record_type_ref(rust_ty, false),
+    None => {}
+  }
 
   // Generic type handling
   if !args.is_empty() {
@@ -828,6 +925,7 @@ fn handle_type_path(
         .get(rust_ty.as_str())
         .map(|c| c.qualified_name())
     }) {
+      record_type_ref(&t, true);
       Some((t, false))
     } else if let Some(&(known_ty, _, _)) = KNOWN_TYPES.get(rust_ty.as_str()) {
       handle_known_type(&rust_ty, known_ty, args, is_return_ty)
@@ -938,7 +1036,7 @@ pub fn ty_to_ts_type(
 mod tests {
   use super::{
     add_alias, escape_json, format_js_property_name, handle_generic_type, ty_to_ts_type, JSDoc,
-    TypeDef, BUFFER_TYPE_IMPORT_MARKER_BASE, BUFFER_TYPE_IMPORT_SENTINEL,
+    TypeDef, TypeRefs, BUFFER_TYPE_IMPORT_MARKER_BASE, BUFFER_TYPE_IMPORT_SENTINEL,
   };
 
   #[test]
@@ -950,6 +1048,10 @@ mod tests {
       def: "method(): \"value\"".to_owned(),
       js_mod: Some("namespace\\\"name".to_owned()),
       js_doc: JSDoc::new(["A \"quoted\" doc"]),
+      type_refs: TypeRefs {
+        root: vec!["ns.\"Root\"".to_owned()],
+        unresolved: vec!["Later\\".to_owned()],
+      },
     };
 
     let parsed: serde_json::Value =
@@ -967,6 +1069,8 @@ mod tests {
       parsed["js_doc"].as_str(),
       Some(type_def.js_doc.to_string().as_str())
     );
+    assert_eq!(parsed["root_refs"][0].as_str(), Some("ns.\"Root\""));
+    assert_eq!(parsed["unresolved_refs"][0].as_str(), Some("Later\\"));
   }
 
   #[test]
@@ -1110,6 +1214,99 @@ mod tests {
       handle_generic_type("BetaStatus", &[]),
       Some(("beta.Status".to_owned(), false))
     );
+  }
+
+  #[test]
+  fn type_refs_record_the_napi_types_a_definition_names() {
+    // napi-rs/napi-rs#3476: the CLI needs to know which references napi-derive
+    // wrote (and which it could not resolve yet) to fix them up across
+    // namespaces, without touching hand-written `ts_type` text.
+    crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| {
+      classes.borrow_mut().insert(
+        "RefsClass".to_owned(),
+        crate::typegen::r#struct::ClassStructRef {
+          js_name: "Client".to_owned(),
+          js_mod: Some("outer.inner".to_owned()),
+        },
+      );
+    });
+    add_alias("RefsStatus".to_owned(), "Status".to_owned(), None);
+    let ty: syn::Type =
+      syn::parse_str("(Option<RefsClass>, Vec<RefsStatus>, RefsLater, Self, u32)")
+        .expect("tuple must parse");
+
+    let type_def = super::collect_type_refs(|| {
+      Some(TypeDef {
+        def: ty_to_ts_type(&ty, false, false, false).0,
+        js_mod: Some("outer".to_owned()),
+        ..Default::default()
+      })
+    })
+    .expect("type def");
+
+    assert_eq!(
+      type_def.def,
+      "[outer.inner.Client | undefined | null, Array<Status>, RefsLater, Self, number]"
+    );
+    assert_eq!(
+      type_def.type_refs,
+      TypeRefs {
+        root: vec!["outer.inner.Client".to_owned(), "Status".to_owned()],
+        unresolved: vec!["RefsLater".to_owned()],
+      }
+    );
+    let parsed: serde_json::Value =
+      serde_json::from_str(&type_def.to_string()).expect("type definition must be valid JSON");
+    assert_eq!(parsed["root_refs"][1].as_str(), Some("Status"));
+    assert_eq!(parsed["unresolved_refs"][0].as_str(), Some("RefsLater"));
+
+    // A top-level definition does not need its root references.
+    let top_level = TypeDef {
+      js_mod: None,
+      ..type_def
+    };
+    let parsed: serde_json::Value =
+      serde_json::from_str(&top_level.to_string()).expect("type definition must be valid JSON");
+    assert!(parsed.get("root_refs").is_none());
+    assert_eq!(parsed["unresolved_refs"][0].as_str(), Some("RefsLater"));
+
+    crate::typegen::r#struct::CLASS_STRUCTS
+      .with(|classes| classes.borrow_mut().remove("RefsClass"));
+  }
+
+  #[test]
+  fn async_task_outputs_record_the_task_output_type_refs() {
+    // A function returning `AsyncTask<T>` writes the text stored when the
+    // `Task` impl was processed, so it must record that text's references too.
+    let ((output, _), task_refs) = super::with_type_refs(|| {
+      crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| {
+        classes.borrow_mut().insert(
+          "TaskRefsOutput".to_owned(),
+          crate::typegen::r#struct::ClassStructRef {
+            js_name: "Output".to_owned(),
+            js_mod: Some("q".to_owned()),
+          },
+        );
+      });
+      let ty: syn::Type = syn::parse_str("TaskRefsOutput").expect("type must parse");
+      ty_to_ts_type(&ty, false, true, false)
+    });
+    assert_eq!(output, "q.Output");
+    crate::typegen::r#struct::TASK_STRUCTS.with(|tasks| {
+      tasks
+        .borrow_mut()
+        .insert("TaskRefsTask".to_owned(), (output, task_refs));
+    });
+
+    let ty: syn::Type = syn::parse_str("AsyncTask<TaskRefsTask>").expect("type must parse");
+    let ((def, _), type_refs) = super::with_type_refs(|| ty_to_ts_type(&ty, false, true, false));
+
+    assert_eq!(def, "Promise<q.Output>");
+    assert_eq!(type_refs.root, vec!["q.Output".to_owned()]);
+
+    crate::typegen::r#struct::TASK_STRUCTS.with(|tasks| tasks.borrow_mut().remove("TaskRefsTask"));
+    crate::typegen::r#struct::CLASS_STRUCTS
+      .with(|classes| classes.borrow_mut().remove("TaskRefsOutput"));
   }
 
   #[test]

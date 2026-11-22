@@ -2633,6 +2633,11 @@ export declare function xxh64Alias(input: import("buffer").Buffer): bigint
 
 export declare namespace deep.left {
   export function deepLeft(): string
+  /**
+   * Uses `DeepRight` before it is declared, from another namespace: the d.ts
+   * must name it `deep.right.DeepRight`.
+   */
+  export function deepLeftToRight(value: number): deep.right.DeepRight
 }
 
 export declare namespace deep.left.inner {
