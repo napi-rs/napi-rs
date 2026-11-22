@@ -34,8 +34,11 @@ enum ScopeEntry {
 
 thread_local! {
   static NATIVE_BORROW_SCOPES: RefCell<Vec<ScopeEntry>> = const { RefCell::new(Vec::new()) };
-  static DEFERRED_NATIVE_BORROW_SCOPES: RefCell<Vec<FinishedNativeBorrowScope>> =
+  static DEFERRED_NATIVE_BORROW_SCOPES: RefCell<Vec<DeferredNativeBorrowScope>> =
     const { RefCell::new(Vec::new()) };
+  /// Next id for [`DeferredNativeBorrowScope::id`]. A deferred scope that registered no
+  /// borrow owns no storage, so its storage pointer cannot identify it.
+  static DEFERRED_NATIVE_BORROW_NEXT_ID: Cell<u64> = const { Cell::new(0) };
   static DEFERRED_NATIVE_BORROW_FLOOR: Cell<usize> = const { Cell::new(0) };
   static NATIVE_BORROW_STORAGE_POOL: RefCell<Vec<SharedStorage>> =
     const { RefCell::new(Vec::new()) };
@@ -594,6 +597,12 @@ pub struct FinishedNativeBorrowScope {
   storage: Option<SharedStorage>,
 }
 
+/// A deferred scope and the id its reclaim guard pops it by.
+struct DeferredNativeBorrowScope {
+  id: u64,
+  scope: FinishedNativeBorrowScope,
+}
+
 impl FinishedNativeBorrowScope {
   /// Releases collected alias guards and exact JavaScript roots on their owner thread.
   /// With outstanding leases this only closes the scope; the last lease release
@@ -701,7 +710,7 @@ impl Drop for NativeBorrowLease {
 /// releases in place; with leases, the last one out performs the release.
 #[doc(hidden)]
 pub struct DeferredNativeBorrowScopeGuard {
-  depth: usize,
+  id: u64,
   env: sys::napi_env,
 }
 
@@ -729,12 +738,17 @@ pub fn defer_native_borrow_scope(
   env: sys::napi_env,
 ) -> DeferredNativeBorrowScopeGuard {
   let scope = scope.finish_sendable();
-  let depth = DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| {
-    let mut scopes = scopes.borrow_mut();
-    scopes.push(scope);
-    scopes.len() - 1
+  let id = DEFERRED_NATIVE_BORROW_NEXT_ID.with(|next| {
+    let id = next.get();
+    next.set(id.wrapping_add(1));
+    id
   });
-  DeferredNativeBorrowScopeGuard { depth, env }
+  DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| {
+    scopes
+      .borrow_mut()
+      .push(DeferredNativeBorrowScope { id, scope })
+  });
+  DeferredNativeBorrowScopeGuard { id, env }
 }
 
 /// Claims a lease on the most recently deferred borrow scope, if any.
@@ -752,9 +766,13 @@ pub(crate) fn claim_deferred_native_borrow_lease() -> Result<Option<NativeBorrow
   let storage = DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| {
     let mut scopes = scopes.borrow_mut();
     if scopes.len() > floor {
-      scopes
-        .last_mut()
-        .map(|scope| scope.storage.get_or_insert_with(new_storage).clone())
+      scopes.last_mut().map(|deferred| {
+        deferred
+          .scope
+          .storage
+          .get_or_insert_with(new_storage)
+          .clone()
+      })
     } else {
       None
     }
@@ -780,8 +798,10 @@ impl Drop for DeferredNativeBorrowScopeGuard {
     // finalizers — re-entrant JavaScript that could reach this TLS again.
     let scope = DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| {
       let mut scopes = scopes.borrow_mut();
-      if scopes.len() == self.depth + 1 {
-        scopes.pop()
+      // Only this guard's own scope: a barrier may have dropped it already, and a later
+      // scope can sit at the same depth.
+      if scopes.last().is_some_and(|deferred| deferred.id == self.id) {
+        scopes.pop().map(|deferred| deferred.scope)
       } else {
         None
       }
@@ -1586,6 +1606,40 @@ mod tests {
       drop(outer_lease);
       assert!(acquire_native_borrow(&mut outer_value, true).is_ok());
       assert!(claim_deferred_native_borrow_lease().unwrap().is_none());
+    });
+  }
+
+  #[test]
+  fn reclaim_guard_does_not_pop_a_later_scope_at_the_same_depth() {
+    on_fresh_thread(|| {
+      let mut first_value = 1u32;
+      let mut second_value = 2u32;
+      let first_guard = {
+        let _barrier = NativeBorrowBarrier::new();
+        let mut scope = unsafe { NativeBorrowScope::new() };
+        register_native_borrow(&mut first_value, false).unwrap();
+        scope.finish();
+        // The barrier drops before this guard and takes its scope with it.
+        defer_native_borrow_scope(scope, ptr::null_mut())
+      };
+      let mut scope = unsafe { NativeBorrowScope::new() };
+      register_native_borrow(&mut second_value, false).unwrap();
+      scope.finish();
+      let second_guard = defer_native_borrow_scope(scope, ptr::null_mut());
+
+      drop(first_guard);
+      // The second scope, now at the first one's depth, still holds its borrow.
+      assert!(acquire_native_borrow(&mut second_value, true).is_err());
+      assert_eq!(
+        DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| scopes.borrow().len()),
+        1
+      );
+      drop(second_guard);
+      assert!(acquire_native_borrow(&mut second_value, true).is_ok());
+      assert_eq!(
+        DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| scopes.borrow().len()),
+        0
+      );
     });
   }
 
