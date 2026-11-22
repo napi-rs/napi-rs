@@ -74,6 +74,8 @@ interface TypeDefLine {
   root_refs?: string[]
   /** Rust names of `#[napi]` types napi-derive had not seen yet. */
   unresolved_refs?: string[]
+  /** Names spelled in the hand-written `ts_*` text `def` holds. */
+  ts_override_names?: string[]
 }
 
 export interface TypeImport {
@@ -722,10 +724,12 @@ const ROOT_ALIAS_BASE = '__NapiRsRoot_'
  * Only references napi-derive recorded are touched (see `root_refs` and
  * `unresolved_refs`), and only inside the declaration whose definition
  * recorded them, so `ts_type` text elsewhere is left as written. Within one
- * declaration (a function, or a class with all its methods), hand-written
- * text that spells the same name as a recorded reference is resolved the
- * same way. A reference to a type whose Rust name two `#[napi]` types share
- * is left as written: napi-derive may have named the wrong one.
+ * declaration (a function, or a class with all its methods) a recorded
+ * reference spelled like a name of its hand-written `ts_*` text (see
+ * `ts_override_names`) is left as written where that name resolves, since
+ * the two cannot be told apart there. A reference to a type whose Rust name
+ * two `#[napi]` types share is left as written too: napi-derive may have
+ * named the wrong one.
  *
  * `reservedDeclarationText` (the `--dts-header`) is parsed in front of the
  * declarations, so a name it declares counts as resolved.
@@ -753,22 +757,40 @@ function resolveNapiTypeReferences(
   }
   // Keyed by the rendered declaration that holds the definition's text: its
   // namespace and name. A class and its `impl` blocks share one.
+  const keyOf = (def: TypeDefLine) =>
+    declarationKey(def.js_mod ?? TOP_LEVEL_NAMESPACE, declarationName(def.name))
+  const overridesByDeclaration = new Map<string, Set<string>>()
+  for (const def of defs) {
+    if (def.ts_override_names?.length) {
+      const key = keyOf(def)
+      const names = overridesByDeclaration.get(key) ?? new Set<string>()
+      def.ts_override_names.forEach((name) => names.add(name))
+      overridesByDeclaration.set(key, names)
+    }
+  }
   const refsByDeclaration = new Map<
     string,
-    { root: Set<string>; unresolved: Map<string, string> }
+    {
+      root: Set<string>
+      unresolved: Map<string, string>
+      overrides: Set<string>
+    }
   >()
   for (const def of defs) {
-    const key = declarationKey(
-      def.js_mod ?? TOP_LEVEL_NAMESPACE,
-      declarationName(def.name),
-    )
+    const key = keyOf(def)
+    // Hand-written text spelling the same name may mean another type.
+    const overrides = overridesByDeclaration.get(key) ?? new Set<string>()
     const refs = refsByDeclaration.get(key) ?? {
       root: new Set<string>(),
       unresolved: new Map<string, string>(),
+      overrides,
     }
     for (const ref of def.js_mod ? (def.root_refs ?? []) : []) {
       const rustName = rustNames.get(ref)
-      if (rustName === undefined || typePaths.get(rustName) !== null) {
+      if (
+        !overrides.has(ref) &&
+        (rustName === undefined || typePaths.get(rustName) !== null)
+      ) {
         refs.root.add(ref)
       }
     }
@@ -802,7 +824,19 @@ function resolveNapiTypeReferences(
     return source
   }
   const checker = program.getTypeChecker()
-  const aliases = new Map<string, { declaration: string; name: string }>()
+  const aliases = new Map<
+    string,
+    {
+      name: string
+      target: string
+      isNamespace: boolean
+      typeParameters:
+        | import('typescript').NodeArray<
+            import('typescript').TypeParameterDeclaration
+          >
+        | undefined
+    }
+  >()
   let identifiers: Set<string> | undefined
   const typeParametersOf = (target: import('typescript').Symbol) =>
     target.declarations
@@ -833,19 +867,11 @@ function resolveNapiTypeReferences(
         aliasName = `${ROOT_ALIAS_BASE}${name}_${suffix}`
       }
       identifiers.add(aliasName)
-      // A generic type keeps its type parameters: `type A<T> = Wrap<T>`.
-      const typeParameters = isNamespace ? undefined : typeParametersOf(target)
-      const parameters = typeParameters
-        ? `<${typeParameters.map((parameter) => parameter.getText(sourceFile)).join(', ')}>`
-        : ''
-      const argumentList = typeParameters
-        ? `<${typeParameters.map((parameter) => parameter.name.text).join(', ')}>`
-        : ''
       alias = {
         name: aliasName,
-        declaration: isNamespace
-          ? `import ${aliasName} = ${name}`
-          : `type ${aliasName}${parameters} = ${name}${argumentList}`,
+        target: name,
+        isNamespace,
+        typeParameters: isNamespace ? undefined : typeParametersOf(target),
       }
       aliases.set(key, alias)
     }
@@ -869,13 +895,16 @@ function resolveNapiTypeReferences(
     const text = entityNameText(typeScript, entityName)
     let path = refs.root.has(text) ? text : undefined
     const unresolvedPath = refs.unresolved.get(text)
+    // A Rust name that does not resolve where it is written is rewritten,
+    // even when hand-written text spells it too: as written it names nothing.
     // A Rust name that is also the type's root path gets the shadowing check
-    // below. Any other Rust name that already resolves (to the
+    // below, unless hand-written text spells it (and may mean what it
+    // resolves to). Any other Rust name that already resolves (to the
     // `export type JsName = Name` a renamed class gets, or to a same-namespace
     // type) is left as it is.
     if (
       unresolvedPath !== undefined &&
-      (unresolvedPath === text ||
+      ((unresolvedPath === text && !refs.overrides.has(text)) ||
         checker.resolveName(
           text,
           entityName,
@@ -959,18 +988,47 @@ function resolveNapiTypeReferences(
   if (replacements.length === 0) {
     return source
   }
-  let rewritten = source
-  for (const { start, end, replacement } of replacements.reverse()) {
-    rewritten = rewritten.slice(0, start) + replacement + rewritten.slice(end)
+  // `source` from `start` to `end`, with the replacements inside it applied.
+  const rewrite = (start: number, end: number) => {
+    let text = source.slice(start, end)
+    for (const replacement of replacements
+      .filter((r) => r.start >= start && r.end <= end)
+      .sort((a, b) => b.start - a.start)) {
+      text =
+        text.slice(0, replacement.start - start) +
+        replacement.replacement +
+        text.slice(replacement.end - start)
+    }
+    return text
   }
-  if (aliases.size) {
-    const declarations = [...aliases.values()]
-      .map(({ declaration }) => declaration)
-      .sort()
-      .join('\n')
-    rewritten = `${rewritten.trimEnd()}\n\n${declarations}\n`
-  }
-  return rewritten
+  const declarations = [...aliases.values()]
+    .map(({ name, target, isNamespace, typeParameters }) => {
+      if (isNamespace) {
+        return `import ${name} = ${target}`
+      }
+      // A generic type keeps its type parameters: `type A<T> = Wrap<T>`,
+      // their defaults as rewritten on the type itself, so that they still
+      // name the same types at the top level.
+      const parameters = typeParameters
+        ? `<${typeParameters
+            .map((parameter) => {
+              const start = parameter.getStart(sourceFile)
+              return start < prefix.length
+                ? parameter.getText(sourceFile)
+                : rewrite(start - prefix.length, parameter.end - prefix.length)
+            })
+            .join(', ')}>`
+        : ''
+      const argumentList = typeParameters
+        ? `<${typeParameters.map((parameter) => parameter.name.text).join(', ')}>`
+        : ''
+      return `type ${name}${parameters} = ${target}${argumentList}`
+    })
+    .sort()
+  const rewritten = rewrite(0, source.length)
+  return declarations.length
+    ? `${rewritten.trimEnd()}\n\n${declarations.join('\n')}\n`
+    : rewritten
 }
 
 /** A definition's declaration name, without the type parameters a generic `#[napi] type` carries in its `name`. */

@@ -376,6 +376,203 @@ test('hand-written text in another declaration is not taken for a recorded refer
   t.true(dts.includes('take(c: __NapiRsRoot_Cfg): void'))
 })
 
+test('a recorded reference spelled like hand-written text of its declaration is left as written', async (t) => {
+  // napi-rs/napi-rs#3476 review: `#[napi(ts_arg_type = "Input")]` inside
+  // `namespace api` means `api.Input`, even when a neighbouring method of the
+  // class refers to the top-level `Input`.
+  const { dts } = await processInlineTypeDef([
+    { kind: 'type', name: 'Input', original_name: 'Input', def: 'string' },
+    { kind: 'type', name: 'Other', original_name: 'Other', def: 'string' },
+    {
+      kind: 'enum',
+      name: 'Input',
+      original_name: 'ApiInput',
+      def: 'A = 0',
+      js_mod: 'api',
+    },
+    {
+      kind: 'enum',
+      name: 'Other',
+      original_name: 'ApiOther',
+      def: 'C = 0',
+      js_mod: 'api',
+    },
+    {
+      kind: 'struct',
+      name: 'Holder',
+      original_name: 'Holder',
+      // A field's `ts_type = "Input"`.
+      def: 'hand: Input',
+      js_mod: 'api',
+      ts_override_names: ['Input'],
+    },
+    {
+      kind: 'impl',
+      name: 'Holder',
+      def: 'take(x: Input): void\nother(y: Other): void',
+      js_mod: 'api',
+      root_refs: ['Input', 'Other'],
+    },
+    {
+      kind: 'fn',
+      name: 'handWritten',
+      def: 'function handWritten(x: Input, y: Other): void',
+      js_mod: 'api',
+      root_refs: ['Other'],
+      ts_override_names: ['x', 'Input'],
+    },
+  ])
+  t.true(dts.includes('    hand: Input\n    take(x: Input): void\n'))
+  t.true(dts.includes('    other(y: __NapiRsRoot_Other): void\n'))
+  t.true(
+    dts.includes(
+      'export function handWritten(x: Input, y: __NapiRsRoot_Other): void',
+    ),
+  )
+  t.false(dts.includes('__NapiRsRoot_Input'))
+})
+
+test("a later type's Rust name that already resolves to another type is left as written", async (t) => {
+  // Known limit: inside `namespace api`, napi-derive's `Config` (the later
+  // `settings::Config`, exported as `settings.PublicConfig`) resolves to
+  // `api.Config`. The CLI cannot tell it from a Rust alias
+  // (`type Config = ApiConfig`) napi-derive cannot see, so it is left as
+  // written, like any later type's Rust name that resolves where it is used.
+  const header = 'export interface Manual { m: number }\n'
+  const { dts } = await processInlineTypeDef(
+    [
+      {
+        kind: 'interface',
+        name: 'Config',
+        original_name: 'ApiConfig',
+        def: 'label: string',
+        js_mod: 'api',
+      },
+      {
+        kind: 'interface',
+        name: 'Mine',
+        original_name: 'Mine',
+        def: 'mine: string',
+        js_mod: 'api',
+      },
+      {
+        kind: 'fn',
+        name: 'forward',
+        def: 'function forward(c: Config, m: Mine, h: Manual, l: Later): Config',
+        js_mod: 'api',
+        unresolved_refs: ['Config', 'Mine', 'Manual', 'Later'],
+      },
+      {
+        kind: 'interface',
+        name: 'PublicConfig',
+        original_name: 'Config',
+        def: 'id: number',
+        js_mod: 'settings',
+      },
+      {
+        kind: 'interface',
+        name: 'Manual',
+        original_name: 'Manual',
+        def: 'generated: number',
+        js_mod: 'settings',
+      },
+      {
+        kind: 'struct',
+        name: 'PublicLater',
+        original_name: 'Later',
+        def: '',
+      },
+    ],
+    true,
+    false,
+    header,
+  )
+  // `Config` is `api.Config`, `Mine` already is the type, `Manual` is the
+  // header's and `Later` the alias a renamed class gets.
+  t.true(
+    dts.includes(
+      'export function forward(c: Config, m: Mine, h: Manual, l: Later): Config',
+    ),
+  )
+  t.false(dts.includes('settings.PublicConfig'))
+  t.false(dts.includes('__NapiRsRoot'))
+})
+
+test("hand-written text spelling a later type's Rust name that resolves nowhere gets its JS path", async (t) => {
+  // napi-rs/napi-rs#3476 review: `#[napi(ts_args_type = "o: Options")]` next
+  // to a return of the later `opts::Options`. Where `Options` names nothing,
+  // the text is an error as written; where it resolves, it is left.
+  const { dts } = await processInlineTypeDef([
+    {
+      kind: 'interface',
+      name: 'Options',
+      original_name: 'Api2Options',
+      def: 'y: number',
+      js_mod: 'api2',
+    },
+    {
+      kind: 'fn',
+      name: 'configure',
+      def: 'function configure(o: Options): Options',
+      js_mod: 'api',
+      unresolved_refs: ['Options'],
+      ts_override_names: ['o', 'Options'],
+    },
+    {
+      kind: 'fn',
+      name: 'configure',
+      def: 'function configure(o: Options): Options',
+      js_mod: 'api2',
+      unresolved_refs: ['Options'],
+      ts_override_names: ['o', 'Options'],
+    },
+    {
+      kind: 'interface',
+      name: 'Options',
+      original_name: 'Options',
+      def: 'x: number',
+      js_mod: 'opts',
+    },
+  ])
+  t.true(
+    dts.includes(
+      'export declare namespace api {\n  export function configure(o: opts.Options): opts.Options\n',
+    ),
+  )
+  t.true(dts.includes('  export function configure(o: Options): Options\n'))
+})
+
+test("hand-written text spelling a later top-level type's Rust name that resolves where it is used is left as written", async (t) => {
+  // `#[napi(ts_args_type = "x: Input")]` inside `namespace api` means
+  // `api.Input`, even when the inferred return type is the later top-level
+  // `Input`: the two spellings cannot be told apart, so the text wins.
+  const { dts } = await processInlineTypeDef([
+    {
+      kind: 'enum',
+      name: 'Input',
+      original_name: 'ApiInput',
+      def: 'A = 0',
+      js_mod: 'api',
+    },
+    {
+      kind: 'fn',
+      name: 'take',
+      def: 'function take(x: Input, y: Input): void',
+      js_mod: 'api',
+      unresolved_refs: ['Input'],
+      ts_override_names: ['Input'],
+    },
+    {
+      kind: 'interface',
+      name: 'Input',
+      original_name: 'Input',
+      def: 'v: string',
+    },
+  ])
+  t.true(dts.includes('  export function take(x: Input, y: Input): void\n'))
+  t.false(dts.includes('__NapiRsRoot_Input'))
+})
+
 test('a top-level type declared after its use from a namespace that shadows it goes through a root alias', async (t) => {
   const { dts } = await processInlineTypeDef([
     {
@@ -488,6 +685,52 @@ test('generic types keep their type parameters when references are fixed', async
     ),
   )
   t.true(dts.endsWith('\n\ntype __NapiRsRoot_Wrap<T = void> = Wrap<T>\n'))
+})
+
+test("a root alias's type parameter defaults are rewritten like the type's own", async (t) => {
+  // CodeRabbit on napi-rs/napi-rs#3735: the alias copied `T = LateCfg` as
+  // written, while the type itself got `T = models.LateCfg`.
+  const { dts } = await processInlineTypeDef([
+    {
+      kind: 'type',
+      name: 'Wrap<T = LateCfg>',
+      original_name: 'Wrap',
+      def: '[T, LateCfg]',
+      unresolved_refs: ['LateCfg'],
+    },
+    {
+      kind: 'interface',
+      name: 'Wrap',
+      original_name: 'ApiWrap',
+      def: 'a: number',
+      js_mod: 'api',
+    },
+    {
+      kind: 'fn',
+      name: 'take',
+      def: 'function take(x: Wrap<number>): number',
+      js_mod: 'api',
+      root_refs: ['Wrap'],
+    },
+    {
+      kind: 'interface',
+      name: 'LateCfg',
+      original_name: 'LateCfg',
+      def: 'id: number',
+      js_mod: 'models',
+    },
+  ])
+  t.true(
+    dts.includes(
+      'export type Wrap<T = models.LateCfg> = [T, models.LateCfg]\n',
+    ),
+  )
+  t.true(
+    dts.includes('export function take(x: __NapiRsRoot_Wrap<number>): number'),
+  )
+  t.true(
+    dts.endsWith('\n\ntype __NapiRsRoot_Wrap<T = models.LateCfg> = Wrap<T>\n'),
+  )
 })
 
 test('a name the dts header declares counts as resolved', async (t) => {

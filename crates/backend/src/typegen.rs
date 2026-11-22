@@ -43,6 +43,12 @@ pub struct TypeRefs {
   /// reference (a type declared later in the crate), written as-is. The CLI
   /// maps them to the type's JS path once every definition is known.
   pub unresolved: Vec<String>,
+  /// Names spelled in hand-written TS text (`ts_type`, `ts_arg_type`,
+  /// `ts_args_type`, `ts_return_type`, `ts_generic_types`) the definition
+  /// holds. The CLI cannot tell such text apart from napi-derive's once they
+  /// share a declaration, so it leaves a reference spelled like one of these
+  /// as written.
+  pub ts_override_names: Vec<String>,
 }
 
 #[derive(Default, Debug)]
@@ -57,6 +63,79 @@ pub trait ToTypeDef {
 thread_local! {
   static ALIAS: RefCell<HashMap<String, String>> = Default::default();
   static TYPE_REFS: RefCell<Option<TypeRefs>> = const { RefCell::new(None) };
+  /// The type parameters in scope (a generic `#[napi] type`'s), which name no
+  /// `#[napi]` type.
+  static TYPE_PARAMS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Runs `f` with `type_params` in scope, so a reference to one of them is not
+/// recorded as a `#[napi]` type reference.
+pub(crate) fn with_type_params<T>(type_params: &[String], f: impl FnOnce() -> T) -> T {
+  let outer = TYPE_PARAMS.with(|params| params.replace(type_params.to_vec()));
+  let value = f();
+  TYPE_PARAMS.with(|params| params.replace(outer));
+  value
+}
+
+fn is_type_param(rust_ty: &str) -> bool {
+  TYPE_PARAMS.with(|params| params.borrow().iter().any(|param| param == rust_ty))
+}
+
+/// The TS type of a slot `#[napi(ts_...)]` text may override: `ts_type` when
+/// given, else `infer()`. The optional flag always comes from `infer()`, but
+/// the references it records are dropped with its text, and the names
+/// `ts_type` spells are recorded instead (see [`TypeRefs::ts_override_names`]).
+pub(crate) fn ts_type_or_infer(
+  ts_type: Option<&str>,
+  infer: impl FnOnce() -> (String, bool),
+) -> (String, bool) {
+  match ts_type {
+    Some(ts_type) => {
+      record_ts_override(ts_type);
+      let ((_, is_optional), _) = with_type_refs(infer);
+      (ts_type.to_owned(), is_optional)
+    }
+    None => infer(),
+  }
+}
+
+/// Records the dotted names hand-written TS text spells, as a superset of
+/// the type references it holds.
+pub(crate) fn record_ts_override(ts_type: &str) {
+  let is_name_char = |c: char| c == '_' || c == '$' || c.is_alphanumeric();
+  let mut names = Vec::new();
+  let mut chars = ts_type.char_indices().peekable();
+  while let Some((start, first)) = chars.next() {
+    if !is_name_char(first) {
+      continue;
+    }
+    let mut end = start + first.len_utf8();
+    while let Some(&(i, c)) = chars.peek() {
+      if is_name_char(c) || c == '.' {
+        end = i + c.len_utf8();
+        chars.next();
+      } else {
+        break;
+      }
+    }
+    // A number (`9e3`) is no name.
+    if !first.is_ascii_digit() {
+      names.push(ts_type[start..end].trim_end_matches('.'));
+    }
+  }
+  TYPE_REFS.with(|refs| {
+    if let Some(refs) = refs.borrow_mut().as_mut() {
+      for name in names {
+        if !refs
+          .ts_override_names
+          .iter()
+          .any(|existing| existing == name)
+        {
+          refs.ts_override_names.push(name.to_owned());
+        }
+      }
+    }
+  });
 }
 
 /// Runs `f` (one item's `to_type_def`) and records the `#[napi]` type
@@ -86,6 +165,9 @@ fn replay_type_refs(type_refs: &TypeRefs) {
   }
   for name in &type_refs.unresolved {
     record_type_ref(name, false);
+  }
+  for name in &type_refs.ts_override_names {
+    record_ts_override(name);
   }
 }
 
@@ -357,10 +439,11 @@ impl Display for TypeDef {
       String::new()
     };
     let unresolved_refs = json_list("unresolved_refs", &self.type_refs.unresolved);
+    let ts_override_names = json_list("ts_override_names", &self.type_refs.ts_override_names);
 
     write!(
       f,
-      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}{}{}{}}}"#,
+      r#"{{"kind": "{}", "name": "{}", "js_doc": "{}", "def": "{}"{}{}{}{}{}{}}}"#,
       escape_json(&self.kind),
       escape_json(&self.name),
       escape_json(&self.js_doc.to_string()),
@@ -370,6 +453,7 @@ impl Display for TypeDef {
       imported_types,
       root_refs,
       unresolved_refs,
+      ts_override_names,
     )
   }
 }
@@ -767,6 +851,8 @@ fn handle_generic_type(rust_ty: &str, args: &[(String, bool)]) -> Option<(String
   let type_alias =
     ALIAS.with(|aliases| aliases.borrow().get(rust_ty).map(|a| (a.to_owned(), false)));
   match &type_alias {
+    // A type parameter names no `#[napi]` type, even when one shares its name.
+    _ if is_type_param(rust_ty) => {}
     Some((alias, _)) => record_type_ref(
       alias.split_once('<').map_or(alias.as_str(), |(t, _)| t),
       true,
@@ -925,7 +1011,9 @@ fn handle_type_path(
         .get(rust_ty.as_str())
         .map(|c| c.qualified_name())
     }) {
-      record_type_ref(&t, true);
+      if !is_type_param(&rust_ty) {
+        record_type_ref(&t, true);
+      }
       Some((t, false))
     } else if let Some(&(known_ty, _, _)) = KNOWN_TYPES.get(rust_ty.as_str()) {
       handle_known_type(&rust_ty, known_ty, args, is_return_ty)
@@ -1034,9 +1122,11 @@ pub fn ty_to_ts_type(
 
 #[cfg(test)]
 mod tests {
+  use quote::ToTokens;
+
   use super::{
     add_alias, escape_json, format_js_property_name, handle_generic_type, ty_to_ts_type, JSDoc,
-    TypeDef, TypeRefs, BUFFER_TYPE_IMPORT_MARKER_BASE, BUFFER_TYPE_IMPORT_SENTINEL,
+    ToTypeDef, TypeDef, TypeRefs, BUFFER_TYPE_IMPORT_MARKER_BASE, BUFFER_TYPE_IMPORT_SENTINEL,
   };
 
   #[test]
@@ -1051,6 +1141,7 @@ mod tests {
       type_refs: TypeRefs {
         root: vec!["ns.\"Root\"".to_owned()],
         unresolved: vec!["Later\\".to_owned()],
+        ts_override_names: vec!["a.\"B\"".to_owned()],
       },
     };
 
@@ -1071,6 +1162,7 @@ mod tests {
     );
     assert_eq!(parsed["root_refs"][0].as_str(), Some("ns.\"Root\""));
     assert_eq!(parsed["unresolved_refs"][0].as_str(), Some("Later\\"));
+    assert_eq!(parsed["ts_override_names"][0].as_str(), Some("a.\"B\""));
   }
 
   #[test]
@@ -1253,6 +1345,7 @@ mod tests {
       TypeRefs {
         root: vec!["outer.inner.Client".to_owned(), "Status".to_owned()],
         unresolved: vec!["RefsLater".to_owned()],
+        ..Default::default()
       }
     );
     let parsed: serde_json::Value =
@@ -1307,6 +1400,274 @@ mod tests {
     crate::typegen::r#struct::TASK_STRUCTS.with(|tasks| tasks.borrow_mut().remove("TaskRefsTask"));
     crate::typegen::r#struct::CLASS_STRUCTS
       .with(|classes| classes.borrow_mut().remove("TaskRefsOutput"));
+  }
+
+  fn test_fn(name: &str, sig: &str, ts: &[(&str, &str)]) -> crate::NapiFn {
+    let sig: syn::Signature = syn::parse_str(sig).expect("signature must parse");
+    let ts = |key: &str| {
+      ts.iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, v)| (*v).to_owned())
+    };
+    let args = sig
+      .inputs
+      .iter()
+      .filter_map(|arg| match arg {
+        syn::FnArg::Typed(p) => Some(crate::NapiFnArg {
+          kind: crate::NapiFnArgKind::PatType(Box::new(p.clone())),
+          ts_arg_type: ts(&p.pat.to_token_stream().to_string()),
+        }),
+        syn::FnArg::Receiver(_) => None,
+      })
+      .collect();
+    let ret = match sig.output {
+      syn::ReturnType::Default => None,
+      syn::ReturnType::Type(_, ty) => Some(*ty),
+    };
+    crate::NapiFn {
+      name: syn::Ident::new(name, proc_macro2::Span::call_site()),
+      js_name: name.to_owned(),
+      symbol_for: None,
+      well_known_symbol: None,
+      module_exports: false,
+      attrs: vec![],
+      args,
+      ret,
+      is_ret_result: false,
+      is_async: false,
+      within_async_runtime: false,
+      fn_self: Some(crate::FnSelf::Ref),
+      kind: crate::FnKind::Normal,
+      vis: syn::Visibility::Inherited,
+      parent: Some(syn::Ident::new("OvHolder", proc_macro2::Span::call_site())),
+      parent_js_name: Some("Holder".to_owned()),
+      strict: false,
+      return_if_invalid: false,
+      js_mod: Some("api".to_owned()),
+      ts_generic_types: ts("ts_generic_types"),
+      ts_type: None,
+      ts_args_type: ts("ts_args_type"),
+      ts_return_type: ts("ts_return_type"),
+      skip_typescript: false,
+      comments: vec![],
+      parent_is_generator: false,
+      parent_is_async_generator: false,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+      catch_unwind: false,
+      unsafe_: false,
+      register_name: syn::Ident::new(name, proc_macro2::Span::call_site()),
+      no_export: false,
+    }
+  }
+
+  fn test_field(name: &str, ty: &str, ts_type: Option<&str>) -> crate::NapiStructField {
+    crate::NapiStructField {
+      name: syn::Member::Named(syn::Ident::new(name, proc_macro2::Span::call_site())),
+      js_name: name.to_owned(),
+      symbol_for: None,
+      well_known_symbol: None,
+      ty: syn::parse_str(ty).expect("type must parse"),
+      getter: true,
+      setter: true,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+      comments: vec![],
+      skip_typescript: false,
+      ts_type: ts_type.map(str::to_owned),
+      has_lifetime: false,
+    }
+  }
+
+  #[test]
+  fn ts_overrides_do_not_record_the_inferred_type_refs() {
+    // napi-rs/napi-rs#3476 review: `#[napi(ts_arg_type = "Input")] x: Input`
+    // inside `namespace api` means `api.Input`; recording the Rust type's
+    // reference made the CLI rewrite it to the top-level `Input`.
+    add_alias("OvInput".to_owned(), "Input".to_owned(), None);
+    add_alias("OvOther".to_owned(), "Other".to_owned(), None);
+    let napi = crate::Napi {
+      item: crate::NapiItem::Impl(crate::NapiImpl {
+        name: syn::Ident::new("OvHolder", proc_macro2::Span::call_site()),
+        js_name: "Holder".to_owned(),
+        has_lifetime: false,
+        items: vec![
+          test_fn("hand", "fn hand(x: OvInput)", &[("x", "Input")]),
+          test_fn(
+            "handRet",
+            "fn hand_ret() -> OvInput",
+            &[("ts_return_type", "Input")],
+          ),
+          test_fn(
+            "handArgs",
+            "fn hand_args(x: OvInput)",
+            &[("ts_args_type", "x: Input")],
+          ),
+          test_fn(
+            "handGeneric",
+            "fn hand_generic(x: u32)",
+            &[("ts_generic_types", "T extends Generic")],
+          ),
+          // The neighbouring method's own reference is still recorded.
+          test_fn("generated", "fn generated(y: OvOther)", &[]),
+        ],
+        task_output_type: None,
+        iterator_yield_type: None,
+        iterator_next_type: None,
+        iterator_return_type: None,
+        async_iterator_yield_type: None,
+        async_iterator_next_type: None,
+        async_iterator_return_type: None,
+        js_mod: Some("api".to_owned()),
+        comments: vec![],
+        register_name: syn::Ident::new("OvHolder", proc_macro2::Span::call_site()),
+      }),
+    };
+
+    let type_def = napi.to_type_def().expect("type def");
+    assert_eq!(
+      type_def.def,
+      " hand(x: Input): void\n handRet(): Input\n handArgs(x: Input): void\n handGeneric<T extends Generic>(x: number): void\n generated(y: Other): void"
+    );
+    assert_eq!(
+      type_def.type_refs,
+      TypeRefs {
+        root: vec!["Other".to_owned()],
+        ts_override_names: ["Input", "x", "T", "extends", "Generic"]
+          .map(str::to_owned)
+          .to_vec(),
+        ..Default::default()
+      }
+    );
+    let parsed: serde_json::Value =
+      serde_json::from_str(&type_def.to_string()).expect("type definition must be valid JSON");
+    assert_eq!(parsed["root_refs"][0].as_str(), Some("Other"));
+    assert_eq!(parsed["ts_override_names"][0].as_str(), Some("Input"));
+
+    // A field's `ts_type` too, while the field keeps its optional flag.
+    let napi = crate::Napi {
+      item: crate::NapiItem::Struct(crate::NapiStruct {
+        name: syn::Ident::new("OvHoldsInput", proc_macro2::Span::call_site()),
+        js_name: "HoldsInput".to_owned(),
+        comments: vec![],
+        js_mod: Some("api".to_owned()),
+        use_nullable: false,
+        register_name: syn::Ident::new("OvHoldsInput", proc_macro2::Span::call_site()),
+        kind: crate::NapiStructKind::Object(crate::NapiObject {
+          fields: vec![
+            test_field("hand", "Option<OvInput>", Some("Input")),
+            test_field("generated", "OvOther", None),
+          ],
+          object_from_js: true,
+          object_to_js: true,
+          is_tuple: false,
+        }),
+        has_lifetime: false,
+        is_generator: false,
+        is_async_generator: false,
+        type_tag: None,
+      }),
+    };
+    let type_def = napi.to_type_def().expect("type def");
+    assert_eq!(type_def.def, "hand?: Input\ngenerated: Other");
+    assert_eq!(type_def.type_refs.root, vec!["Other".to_owned()]);
+    assert_eq!(
+      type_def.type_refs.ts_override_names,
+      vec!["Input".to_owned()]
+    );
+
+    super::ALIAS.with(|aliases| {
+      let mut aliases = aliases.borrow_mut();
+      aliases.remove("OvInput");
+      aliases.remove("OvOther");
+      aliases.remove("OvHoldsInput");
+    });
+    crate::typegen::r#struct::CLASS_STRUCTS
+      .with(|classes| classes.borrow_mut().remove("OvHoldsInput"));
+  }
+
+  #[test]
+  fn type_params_are_not_recorded_as_type_refs() {
+    // napi-rs/napi-rs#3476 review: `type ItemList<Item> = Vec<Item>` names its
+    // own parameter, not a `#[napi]` type `Item` declared before or after it.
+    add_alias("TpSeen".to_owned(), "TpSeen".to_owned(), None);
+    add_alias("TpOther".to_owned(), "Other".to_owned(), None);
+    crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| {
+      classes.borrow_mut().insert(
+        "TpClass".to_owned(),
+        crate::typegen::r#struct::ClassStructRef {
+          js_name: "TpClass".to_owned(),
+          js_mod: None,
+        },
+      );
+    });
+    let napi_type = |type_params: &[&str]| crate::Napi {
+      item: crate::NapiItem::Type(crate::NapiType {
+        name: syn::Ident::new("TpList", proc_macro2::Span::call_site()),
+        js_name: "TpList".to_owned(),
+        type_params: type_params.iter().map(|p| (*p).to_owned()).collect(),
+        value: syn::parse_str("(Vec<TpSeen>, TpClass, TpLater, TpOther)").expect("type must parse"),
+        register_name: syn::Ident::new("TpList", proc_macro2::Span::call_site()),
+        skip_typescript: false,
+        js_mod: Some("ns".to_owned()),
+        comments: vec![],
+      }),
+    };
+
+    let type_def = napi_type(&["TpSeen", "TpClass", "TpLater"])
+      .to_type_def()
+      .expect("type def");
+    assert_eq!(type_def.def, "[Array<TpSeen>, TpClass, TpLater, Other]");
+    assert_eq!(
+      type_def.type_refs,
+      TypeRefs {
+        root: vec!["Other".to_owned()],
+        ..Default::default()
+      }
+    );
+
+    // Without the parameters in scope, the same names are references.
+    let type_def = napi_type(&[]).to_type_def().expect("type def");
+    assert_eq!(
+      type_def.type_refs,
+      TypeRefs {
+        root: ["TpSeen", "TpClass", "Other"].map(str::to_owned).to_vec(),
+        unresolved: vec!["TpLater".to_owned()],
+        ..Default::default()
+      }
+    );
+
+    super::ALIAS.with(|aliases| {
+      let mut aliases = aliases.borrow_mut();
+      aliases.remove("TpSeen");
+      aliases.remove("TpOther");
+      aliases.remove("TpList");
+    });
+    crate::typegen::r#struct::CLASS_STRUCTS.with(|classes| classes.borrow_mut().remove("TpClass"));
+  }
+
+  #[test]
+  fn ts_override_names_are_the_dotted_names_of_the_text() {
+    let ((), type_refs) = super::with_type_refs(|| {
+      super::record_ts_override("x: a.b.Input<T> | 'lit-1' | Map<string, $Y_2>, ...rest: 9e3[]");
+    });
+    assert_eq!(
+      type_refs.ts_override_names,
+      [
+        "x",
+        "a.b.Input",
+        "T",
+        "lit",
+        "Map",
+        "string",
+        "$Y_2",
+        "rest"
+      ]
+      .map(str::to_owned)
+      .to_vec()
+    );
   }
 
   #[test]

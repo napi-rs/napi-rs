@@ -4,7 +4,9 @@ use convert_case::Case;
 use quote::ToTokens;
 use syn::{Member, Pat, PathArguments, PathSegment};
 
-use super::{r#struct::CLASS_STRUCTS, ty_to_ts_type, ToTypeDef, TypeDef};
+use super::{
+  r#struct::CLASS_STRUCTS, record_ts_override, ts_type_or_infer, ty_to_ts_type, ToTypeDef, TypeDef,
+};
 use crate::{typegen::JSDoc, util::to_case, CallbackArg, FnKind, NapiFn};
 
 pub(crate) struct FnArg {
@@ -89,6 +91,17 @@ impl ToTypeDef for NapiFn {
       Some((name, _)) => format!("[globalThis.Symbol.{name}]"),
       None => self.js_name.clone(),
     };
+    for ts_type in [
+      &self.ts_type,
+      &self.ts_generic_types,
+      &self.ts_args_type,
+      &self.ts_return_type,
+    ]
+    .into_iter()
+    .flatten()
+    {
+      record_ts_override(ts_type);
+    }
     let def = match self.ts_type.as_ref() {
       Some(ts_type) => format!("{prefix} {name}{ts_type}"),
       None => format!(
@@ -258,8 +271,9 @@ impl NapiFn {
                   }) = arguments
                   {
                     if let Some(syn::GenericArgument::Type(ty)) = angle_bracketed_args.first() {
-                      let (ts_type, _) = ty_to_ts_type(ty, false, false, false);
-                      let ts_type = arg.use_overridden_type_or(|| ts_type);
+                      let (ts_type, _) = ts_type_or_infer(arg.ts_arg_type.as_deref(), || {
+                        ty_to_ts_type(ty, false, false, false)
+                      });
                       return Some(FnArg {
                         arg: "this".to_owned(),
                         ts_type,
@@ -269,7 +283,10 @@ impl NapiFn {
                   } else {
                     return Some(FnArg {
                       arg: "this".to_owned(),
-                      ts_type: arg.use_overridden_type_or(|| "this".to_owned()),
+                      ts_type: ts_type_or_infer(arg.ts_arg_type.as_deref(), || {
+                        ("this".to_owned(), false)
+                      })
+                      .0,
                       is_optional: false,
                     });
                   }
@@ -284,8 +301,9 @@ impl NapiFn {
               i.mutability = None;
             }
 
-            let (ts_type, is_optional) = ty_to_ts_type(&path.ty, false, false, false);
-            let ts_type = arg.use_overridden_type_or(|| ts_type);
+            let (ts_type, is_optional) = ts_type_or_infer(arg.ts_arg_type.as_deref(), || {
+              ty_to_ts_type(&path.ty, false, false, false)
+            });
             let arg = gen_ts_func_arg(&path.pat);
             Some(FnArg {
               arg,
@@ -294,7 +312,9 @@ impl NapiFn {
             })
           }
           crate::NapiFnArgKind::Callback(cb) => {
-            let ts_type = arg.use_overridden_type_or(|| gen_callback_type(cb));
+            let (ts_type, _) = ts_type_or_infer(arg.ts_arg_type.as_deref(), || {
+              (gen_callback_type(cb), false)
+            });
             let arg = to_case(cb.pat.to_token_stream().to_string(), Case::Camel);
 
             Some(FnArg {

@@ -3,7 +3,8 @@ use std::vec::Vec;
 use std::{cell::RefCell, iter};
 
 use super::{
-  add_alias, format_js_property_name, ty_to_ts_type, with_type_refs, ToTypeDef, TypeDef, TypeRefs,
+  add_alias, format_js_property_name, ts_type_or_infer, ty_to_ts_type, with_type_refs, ToTypeDef,
+  TypeDef, TypeRefs,
 };
 use crate::{typegen::JSDoc, util::to_case, NapiImpl, NapiStruct, NapiStructField, NapiStructKind};
 
@@ -225,8 +226,9 @@ impl NapiStruct {
       field_str.push_str("readonly ")
     }
 
-    let (ty, is_optional) = ty_to_ts_type(&f.ty, false, true, false);
-    let ty = f.ts_type.as_ref().map(|ty| ty.to_string()).unwrap_or(ty);
+    let (ty, is_optional) = ts_type_or_infer(f.ts_type.as_deref(), || {
+      ty_to_ts_type(&f.ty, false, true, false)
+    });
     let js_name = format_js_property_name(&f.js_name);
 
     let gen_arg = |name: &str| match is_optional {
