@@ -86,7 +86,7 @@
     "tslib": "^2.8.1",
     "typescript": "^6.0.3"
   },
-  "packageManager": "yarn@4.18.1",
+  "packageManager": "yarn@4.19.0",
   "resolutions": {
     "@napi-rs/wasm-runtime": "workspace:",
     "nx/undici": "^8.0.0",
