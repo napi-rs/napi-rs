@@ -382,6 +382,7 @@ export async function withFileSystemReconciliation<T>(
   reconciliationTails.set(localKey, tail)
 
   const releaseCrossProcessLocks: Array<() => Promise<void>> = []
+  const pinnedDirectories: FileHandle[] = []
   let previousSettled = false
   let lockAcquisitionDegraded = false
   let operationFailed = false
@@ -393,7 +394,10 @@ export async function withFileSystemReconciliation<T>(
       options?.signal,
     )
     previousSettled = true
-    const identities = await resolveReconciliationLockIdentities(path)
+    const identities = await resolveReconciliationLockIdentities(
+      path,
+      pinnedDirectories,
+    )
     const injectedIdentityGetter = options?.getProcessExecutionIdentity
     const identityWaitTimeout =
       options?.identityWaitTimeout ?? reconciliationIdentityWaitTimeout
@@ -458,6 +462,7 @@ export async function withFileSystemReconciliation<T>(
       releaseErrors.push(error)
     }
   }
+  await Promise.allSettled(pinnedDirectories.map((handle) => handle.close()))
   release()
   if (previousSettled) {
     if (reconciliationTails.get(localKey) === tail) {
@@ -498,6 +503,34 @@ export async function withFileSystemReconciliation<T>(
     )
   }
   return result
+}
+
+// On overlayfs with layers on different filesystems and xino off, a directory
+// gets a new st_ino when it is evicted from the inode cache and looked up
+// again. An open handle keeps the directory and its ancestors cached, so the
+// dev/ino captured for a lock or a transaction stay valid until it ends.
+async function pinReconciliationDirectories(
+  handles: FileHandle[],
+  paths: string[],
+) {
+  if (process.platform === 'win32') {
+    return
+  }
+  for (const path of paths) {
+    try {
+      handles.push(
+        await open(
+          path,
+          constants.O_RDONLY |
+            (constants.O_DIRECTORY ?? 0) |
+            (constants.O_NOFOLLOW ?? 0),
+        ),
+      )
+    } catch (error) {
+      // A missing or replaced directory is reported by the identity checks.
+      debug(`Could not pin directory ${path}: ${errorMessage(error)}`)
+    }
+  }
 }
 
 function fileSystemReconciliationCapabilityRoot(path: string) {
@@ -784,6 +817,27 @@ async function commitFileSystemTransactionUnlocked(
   writes: FileSystemTransactionWrite[],
   removals: string[],
 ) {
+  const pinnedDirectories: FileHandle[] = []
+  try {
+    await commitPinnedFileSystemTransaction(
+      requestedTransactionRoot,
+      transactionRoot,
+      writes,
+      removals,
+      pinnedDirectories,
+    )
+  } finally {
+    await Promise.allSettled(pinnedDirectories.map((handle) => handle.close()))
+  }
+}
+
+async function commitPinnedFileSystemTransaction(
+  requestedTransactionRoot: string,
+  transactionRoot: string,
+  writes: FileSystemTransactionWrite[],
+  removals: string[],
+  pinnedDirectories: FileHandle[],
+) {
   const transactionWrites = await Promise.all(
     writes.map(async (write) => {
       const destination = await resolveCanonicalTransactionPath(
@@ -931,13 +985,19 @@ async function commitFileSystemTransactionUnlocked(
     if (!parentIdentities.has(parent)) {
       parentIdentities.set(
         parent,
-        await captureTransactionParentIdentity(transactionRoot, parent),
+        await captureTransactionParentIdentity(
+          transactionRoot,
+          parent,
+          pinnedDirectories,
+        ),
       )
     }
   }
 
-  const transactionState =
-    await createFileSystemTransactionCandidate(transactionRoot)
+  const transactionState = await createFileSystemTransactionCandidate(
+    transactionRoot,
+    pinnedDirectories,
+  )
   const {
     path: candidateRoot,
     stats: candidateStats,
@@ -1641,9 +1701,11 @@ async function canonicalizeReconciliationPath(path: string) {
 
 async function resolveReconciliationLockIdentities(
   path: string,
+  pinnedDirectories: FileHandle[],
 ): Promise<ReconciliationLockIdentity[]> {
   const requestedPath = resolve(path)
   const anchorPath = await canonicalizeReconciliationPath(path)
+  await pinReconciliationDirectories(pinnedDirectories, [anchorPath])
   let anchorStats: BigIntStats
   try {
     anchorStats = await lstat(anchorPath, { bigint: true })
@@ -1687,6 +1749,7 @@ async function resolveReconciliationLockIdentities(
   const pathIdentities = await Promise.all(
     [...guardKeys].map(async ([key, carriedLockRoot]) => {
       const lockRootPath = carriedLockRoot ?? (await realpath(dirname(key)))
+      await pinReconciliationDirectories(pinnedDirectories, [lockRootPath])
       const lockRootStats = await lstat(lockRootPath, { bigint: true })
       if (!lockRootStats.isDirectory()) {
         throw reconciliationPathCollisionError(
@@ -4214,11 +4277,13 @@ async function resolveCanonicalTransactionPath(
 async function captureTransactionParentIdentity(
   root: string,
   parent: string,
+  pinnedDirectories: FileHandle[],
 ): Promise<TransactionParentIdentity> {
   const canonicalParent = await canonicalizeReconciliationPath(parent)
   resolveTransactionPath(root, join(canonicalParent, '.napi-parent-check'))
 
   let identityPath = canonicalParent
+  await pinReconciliationDirectories(pinnedDirectories, [identityPath])
   let identityStats = await lstatIfExists(identityPath, { bigint: true })
   while (!identityStats) {
     const next = dirname(identityPath)
@@ -4228,6 +4293,7 @@ async function captureTransactionParentIdentity(
       )
     }
     identityPath = next
+    await pinReconciliationDirectories(pinnedDirectories, [identityPath])
     identityStats = await lstatIfExists(identityPath, { bigint: true })
   }
   if (!identityStats.isDirectory()) {
@@ -4355,7 +4421,10 @@ function parseFileSystemTransactionSiblingName(name: string) {
   }
 }
 
-async function createFileSystemTransactionCandidate(root: string) {
+async function createFileSystemTransactionCandidate(
+  root: string,
+  pinnedDirectories: FileHandle[],
+) {
   while (true) {
     const token = randomUUID()
     const path = fileSystemTransactionSiblingPath(
@@ -4371,6 +4440,7 @@ async function createFileSystemTransactionCandidate(root: string) {
       }
       throw error
     }
+    await pinReconciliationDirectories(pinnedDirectories, [path])
     const stats = await lstat(path, { bigint: true })
     if (!stats.isDirectory() || stats.isSymbolicLink()) {
       throw new Error(
