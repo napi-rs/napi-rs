@@ -896,6 +896,42 @@ impl Object<'_> {
     Ok(())
   }
 
+  pub(crate) fn property_names_raw(&self) -> Result<(sys::napi_value, u32)> {
+    let mut names = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_property_names(self.0.env, self.0.value, &mut names) },
+      "Failed to get property names of given object"
+    )?;
+    let mut len = 0;
+    check_status!(
+      unsafe { sys::napi_get_array_length(self.0.env, names, &mut len) },
+      "Failed to get the length of property names"
+    )?;
+    Ok((names, len))
+  }
+
+  pub(crate) fn property_at(
+    &self,
+    names: sys::napi_value,
+    index: u32,
+  ) -> Result<Option<(String, sys::napi_value)>> {
+    let env = self.0.env;
+    let mut key = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_element(env, names, index, &mut key) },
+      "Failed to get property name at index {index}"
+    )?;
+    let mut value = ptr::null_mut();
+    check_status!(
+      unsafe { sys::napi_get_property(env, self.0.value, key, &mut value) },
+      "Failed to get property at index {index}"
+    )?;
+    if type_of!(env, value)? == ValueType::Undefined {
+      return Ok(None);
+    }
+    Ok(Some((unsafe { String::from_napi_value(env, key)? }, value)))
+  }
+
   /// Get the string keys of the `Object`
   pub fn keys(obj: &Object) -> Result<Vec<String>> {
     let mut names = ptr::null_mut();

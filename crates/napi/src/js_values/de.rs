@@ -442,8 +442,8 @@ impl<'de> MapAccess<'de> for JsObjectAccess<'_> {
         format!("Index:{} out of range: {}", self.property_len, self.idx),
       ));
     }
-    let prop_name = self.properties.get_element::<String>(self.idx)?;
-    let value: Unknown = self.value.get_named_property_unchecked(&prop_name)?;
+    let prop_name = self.properties.get_element::<Unknown>(self.idx)?;
+    let value: Unknown = self.value.get_property_unchecked(prop_name)?;
 
     self.idx += 1;
     let mut de = De(&value.0);
