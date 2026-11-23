@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.16.3](https://github.com/napi-rs/napi-rs/compare/napi-v3.16.2...napi-v3.16.3) - 2026-11-23
+
+### Fixed
+
+- *(napi)* nest dotted namespaces at runtime ([#3735](https://github.com/napi-rs/napi-rs/pull/3735))
+- *(napi)* retain JS values and names stored in Property ([#3726](https://github.com/napi-rs/napi-rs/pull/3726))
+- *(napi)* deserialize whole numbers outside the i64 range as f64 ([#3705](https://github.com/napi-rs/napi-rs/pull/3705))
+- *(cli,macro,napi)* harden type-def cache keying, locking, rollback, and emission ([#3725](https://github.com/napi-rs/napi-rs/pull/3725))
+
+### Other
+
+- *(napi)* transcode non-ASCII strings before creating them ([#3732](https://github.com/napi-rs/napi-rs/pull/3732))
+- *(napi)* drop the global locks from class method calls ([#3730](https://github.com/napi-rs/napi-rs/pull/3730))
+- *(napi)* skip the borrow scope allocation on calls that don't borrow ([#3731](https://github.com/napi-rs/napi-rs/pull/3731))
+- *(napi)* reuse property keys when reading maps ([#3733](https://github.com/napi-rs/napi-rs/pull/3733))
+- Merge commit from fork
+- Merge commit from fork
+- *(napi)* omit unused JS callback in custom-GC TSFN and reverse-scan env registrations ([#3728](https://github.com/napi-rs/napi-rs/pull/3728))
+- *(napi)* polish future erasure bridge, docs, and tests ([#3723](https://github.com/napi-rs/napi-rs/pull/3723))
+- *(napi)* erase the future type before the future → Promise bridge ([#3717](https://github.com/napi-rs/napi-rs/pull/3717))
+- *(napi)* `JsStringUtf8` avoid memory copies in `into_owned` and `take` ([#3711](https://github.com/napi-rs/napi-rs/pull/3711))
+- *(napi)* `JsStringUtf8` contain a `String` ([#3710](https://github.com/napi-rs/napi-rs/pull/3710))
+- *(napi)* `owned_string_without_coercion` use unchecked string conversion ([#3709](https://github.com/napi-rs/napi-rs/pull/3709))
+- *(napi)* avoid zero-initializing string conversion buffers ([#3708](https://github.com/napi-rs/napi-rs/pull/3708))
+- *(napi)* drop `mem::forget` round-trip in `JsString::into_*` ([#3707](https://github.com/napi-rs/napi-rs/pull/3707))
+- *(napi)* clarify naming and comments in string conversions ([#3706](https://github.com/napi-rs/napi-rs/pull/3706))
+
 ## [3.16.2](https://github.com/napi-rs/napi-rs/compare/napi-v3.16.1...napi-v3.16.2) - 2026-11-11
 
 ### Fixed
