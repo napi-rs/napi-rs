@@ -427,6 +427,27 @@ test('string', (t) => {
   for (const s of ['', 'a', 'ÿ', longAscii, 'æ¶½¾'.repeat(512)]) {
     t.is(concatLatin1(s), s + suffix)
   }
+  for (const s of [
+    '©' + longAscii,
+    longAscii + 'ÿ',
+    'æ¶½¾'.repeat(512),
+    '©'.repeat(40),
+    longAscii + '你',
+    '🌳' + longAscii,
+    longMixed,
+    // U+0100 has lead byte 0xC4, the first one Latin-1 cannot hold
+    'Ā' + 'a'.repeat(70),
+    'ÿ' + 'a'.repeat(70),
+    // NUL inside a transcoded string over 64 bytes
+    'ab\0©'.repeat(30),
+    'ab\0你'.repeat(30),
+    // first non-ASCII char at the very end: UTF-16 content takes the UTF-8
+    // fallback, Latin-1 content is still transcoded
+    longAscii + '😀',
+    longAscii + '\0©',
+  ]) {
+    t.is(roundtripStr(s), s)
+  }
 })
 
 test('JsStringUtf8 methods', (t) => {
