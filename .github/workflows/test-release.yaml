@@ -668,7 +668,7 @@ jobs:
           ${{ matrix.settings.args }}
           -v ${{ github.workspace }}:/build -w /build
           ${{ steps.image-name.outputs.docker-image }}
-          sh -c "export NODE_OPTIONS=--max-old-space-size=8192 && export DISABLE_V8_COMPILE_CACHE=1 && node .yarn/releases/yarn-4.18.1.cjs workspace @examples/napi test"
+          sh -c "export NODE_OPTIONS=--max-old-space-size=8192 && export DISABLE_V8_COMPILE_CACHE=1 && npm i -g corepack && corepack enable && yarn workspace @examples/napi test"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -719,7 +719,7 @@ jobs:
           --platform linux/arm/v7
           -v ${{ github.workspace }}:/build -w /build
           node:22-slim
-          node .yarn/releases/yarn-4.18.1.cjs test
+          sh -c "npm i -g corepack && corepack enable && yarn test"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
