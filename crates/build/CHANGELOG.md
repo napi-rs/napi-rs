@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.7.0](https://github.com/napi-rs/napi-rs/compare/napi-build-v2.6.0...napi-build-v2.7.0) - 2026-11-23
+
+### Added
+
+- *(build,cli)* make WASI `-zstack-size` configurable ([#3727](https://github.com/napi-rs/napi-rs/pull/3727))
+
 ## [2.5.0](https://github.com/napi-rs/napi-rs/compare/napi-build-v2.4.4...napi-build-v2.5.0) - 2026-09-22
 
 ### Added
