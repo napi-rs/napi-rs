@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.0.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v7.0.1...napi-derive-backend-v8.0.0) - 2026-11-23
+
+### Fixed
+
+- *(napi)* nest dotted namespaces at runtime ([#3735](https://github.com/napi-rs/napi-rs/pull/3735))
+
+### Other
+
+- Merge commit from fork
+
 ## [7.0.1](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v7.0.0...napi-derive-backend-v7.0.1) - 2026-11-11
 
 ### Fixed
