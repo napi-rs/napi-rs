@@ -1746,8 +1746,8 @@ async function resolveReconciliationLockIdentities(
     currentPath = parent
   }
 
-  const pathIdentities = await Promise.all(
-    [...guardKeys].map(async ([key, carriedLockRoot]) => {
+  const pathIdentityLookups = [...guardKeys].map(
+    async ([key, carriedLockRoot]): Promise<ReconciliationLockIdentity> => {
       const lockRootPath = carriedLockRoot ?? (await realpath(dirname(key)))
       await pinReconciliationDirectories(pinnedDirectories, [lockRootPath])
       const lockRootStats = await lstat(lockRootPath, { bigint: true })
@@ -1768,8 +1768,16 @@ async function resolveReconciliationLockIdentities(
         reportTopologyChange: key === anchorPath,
         requestedPath,
       }
-    }),
+    },
   )
+  let pathIdentities: ReconciliationLockIdentity[]
+  try {
+    pathIdentities = await Promise.all(pathIdentityLookups)
+  } catch (error) {
+    // The caller closes pinned handles only after every lookup stops pinning.
+    await Promise.allSettled(pathIdentityLookups)
+    throw error
+  }
   const anchorParentPath = await realpath(dirname(anchorPath))
   const anchorParentStats = await lstat(anchorParentPath, { bigint: true })
   const anchorParentIsShared =
