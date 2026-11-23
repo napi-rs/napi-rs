@@ -44,10 +44,13 @@ use napi_async_runtime::{
   is_multi_threaded,
   max_async_runtime_worker_threads,
   metrics,
+  parse_thread_count,
   register_current_thread_task_driver,
   register_timer_driver,
   request_current_thread_task_drain,
   reset_metrics,
+  resolve_drain_linger,
+  resolve_thread_count,
   shutdown,
   sleep_until,
   spawn,
@@ -76,6 +79,9 @@ fn consumed_api_signatures_are_stable() {
   let _: fn() -> Result<(), RuntimeConfigError> = start;
   let _: fn() -> Result<(), RuntimeConfigError> = shutdown;
   let _: fn() = reset_metrics;
+  let _: fn(&str) -> Option<usize> = parse_thread_count;
+  let _: fn(Option<String>, usize, usize) -> usize = resolve_thread_count;
+  let _: fn(Option<String>, std::time::Duration) -> std::time::Duration = resolve_drain_linger;
   let _: fn() = request_current_thread_task_drain;
   let _: fn() -> RuntimeMetricsSnapshot = metrics;
   let _: fn(Instant) -> Sleep = sleep_until;
@@ -118,4 +124,38 @@ fn consumed_api_signatures_are_stable() {
     handle
   }
   let _ = join_handle_output;
+}
+
+#[cfg(feature = "napi-backend")]
+#[test]
+fn napi_adapter_feature_surfaces_compile() {
+  let _: fn(RuntimeOptions) -> napi::Result<()> = napi_async_runtime::install;
+  let _: fn(RuntimeOptions) -> napi::Result<()> = napi_async_runtime::install_exact;
+  let flavor: napi_async_runtime::BindingRuntimeFlavor = RuntimeFlavor::CurrentThread.into();
+  let _: RuntimeFlavor = flavor.into();
+
+  #[cfg(feature = "napi-task-host")]
+  {
+    let _: fn() -> napi::Result<napi_async_runtime::BindingHostRegistration> =
+      napi_async_runtime::reserve_current_thread_host_registration;
+    let _: fn() -> u32 = napi_async_runtime::get_current_thread_task_host_contract_version;
+    let _: fn(u32, u32) -> bool = napi_async_runtime::is_current_thread_host_registration_active;
+    let _: fn(u32, u32) = napi_async_runtime::unregister_current_thread_task_host;
+  }
+
+  #[cfg(any(feature = "napi-timer-host", feature = "napi-timer-host-stub"))]
+  {
+    let _: fn(u32, u32) = napi_async_runtime::unregister_timer_host;
+  }
+
+  #[cfg(feature = "napi-js-config")]
+  {
+    let _: fn(napi_async_runtime::BindingRuntimeOptions) -> napi::Result<()> =
+      napi_async_runtime::configure_async_runtime;
+    let _: fn() -> napi_async_runtime::BindingRuntimeConfig =
+      napi_async_runtime::get_async_runtime_config;
+    let _: fn() -> napi_async_runtime::BindingRuntimeMetrics =
+      napi_async_runtime::get_async_runtime_metrics;
+    let _: fn() = napi_async_runtime::reset_async_runtime_metrics;
+  }
 }

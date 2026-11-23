@@ -7,6 +7,18 @@ import {
   NAPI_BINDING_TARGET_STAMP_FN,
 } from './binding-target.js'
 
+/**
+ * Strip SemVer 2.0 build metadata (`+...`) before version equality checks.
+ *
+ * Per SemVer 2.0 §10, build metadata does not affect version equality, and
+ * `npm pack` / `pnpm pack` strip `+...` metadata from published `package.json`
+ * manifests.
+ */
+export function stripSemverBuildMetadata(version: string): string {
+  const plusIndex = version.indexOf('+')
+  return plusIndex > 0 ? version.slice(0, plusIndex) : version
+}
+
 function resolveWasiFlavors(wasiFlavors?: string[]): string[] {
   return wasiFlavors && wasiFlavors.length > 0 ? wasiFlavors : ['wasm32-wasi']
 }
@@ -61,7 +73,7 @@ function createWasiFallbackChain(
           ? `
         if (process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
           const bindingPackageVersion = require('${specifier}/package.json').version
-          if (bindingPackageVersion !== '${packageVersion}') {
+          if (__napiStripBuildMetadata(bindingPackageVersion) !== '${packageVersion}') {
             throw new Error(\`WASI binding package version mismatch, expected ${packageVersion} but got \${bindingPackageVersion}. You can reinstall dependencies to fix this issue.\`)
           }
         }`
@@ -213,16 +225,20 @@ function createCommonBinding(
   wasiFlavors?: string[],
   localWasiName?: string,
 ): string {
+  const expectedVersion = packageVersion
+    ? stripSemverBuildMetadata(packageVersion)
+    : undefined
+
   function requireTuple(tuple: string, identSize = 8) {
     const identLow = ' '.repeat(identSize - 2)
     const ident = ' '.repeat(identSize)
-    const versionCheck = packageVersion
+    const versionCheck = expectedVersion
       ? `
 ${identLow}try {
 ${ident}const binding = require('${pkgName}-${tuple}')
 ${ident}const bindingPackageVersion = require('${pkgName}-${tuple}/package.json').version
-${ident}if (bindingPackageVersion !== '${packageVersion}' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-${ident}  throw new Error(\`Native binding package version mismatch, expected ${packageVersion} but got \${bindingPackageVersion}. You can reinstall dependencies to fix this issue.\`)
+${ident}if (__napiStripBuildMetadata(bindingPackageVersion) !== '${expectedVersion}' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+${ident}  throw new Error(\`Native binding package version mismatch, expected ${expectedVersion} but got \${bindingPackageVersion}. You can reinstall dependencies to fix this issue.\`)
 ${ident}}
 ${ident}return binding
 ${identLow}} catch (e) {
@@ -242,6 +258,16 @@ ${identLow}}${versionCheck}`
   }
 
   const flavors = resolveWasiFlavors(wasiFlavors)
+  const stripBuildMetadataHelper = expectedVersion
+    ? `
+const __napiStripBuildMetadata = (version) => {
+  if (typeof version !== 'string') {
+    return version
+  }
+  const plusIndex = version.indexOf('+')
+  return plusIndex > 0 ? version.slice(0, plusIndex) : version
+}`
+    : ''
 
   return `const { readFileSync } = require('fs')
 let nativeBinding = null
@@ -254,7 +280,7 @@ let __napiLoadedBindingTarget = 'native'
 // the load-failure block compares it with \`nativeBinding\` to tell a binding
 // this loader loaded from one that code outside it put in its place.
 let __napiRequiredNativeBinding = null
-const loadErrors = []
+const loadErrors = []${stripBuildMetadataHelper}
 
 const isMusl = () => {
   let musl = false
@@ -480,7 +506,7 @@ ${createWasiFallbackChain(
   localName,
   pkgName,
   flavors,
-  packageVersion,
+  expectedVersion,
   localWasiName,
 )}
   if (

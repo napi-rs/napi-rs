@@ -7,7 +7,10 @@ import { join } from 'node:path'
 
 import ava, { type TestFn } from 'ava'
 
-import { createNpmDirs } from '../create-npm-dirs.js'
+import {
+  createNpmDirs,
+  formatWasmRuntimeDependencyVersion,
+} from '../create-npm-dirs.js'
 import { MINIMUM_WASI_NODE_VERSION } from '../../utils/index.js'
 
 const require = createRequire(import.meta.url)
@@ -778,6 +781,300 @@ test.serial(
         packageJsonPath: 'package.json',
       })
 
+      t.deepEqual(registryServer.requests, ['/npm/@napi-rs/wasm-runtime'])
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
+test('formatWasmRuntimeDependencyVersion pins exact when local with prerelease emnapi or prerelease runtime', (t) => {
+  t.is(
+    formatWasmRuntimeDependencyVersion(
+      { version: '1.2.6', fromLocal: true },
+      '2.0.0-beta.3',
+    ),
+    '1.2.6',
+  )
+  t.is(
+    formatWasmRuntimeDependencyVersion(
+      { version: '1.2.6', fromLocal: true },
+      '1.11.1',
+    ),
+    '~1.2.6',
+  )
+  t.is(
+    formatWasmRuntimeDependencyVersion(
+      { version: '1.3.0-alpha.1', fromLocal: true },
+      '1.11.1',
+    ),
+    '1.3.0-alpha.1',
+  )
+  t.is(
+    formatWasmRuntimeDependencyVersion(
+      { version: '1.2.6', fromLocal: false },
+      '2.0.0-beta.3',
+    ),
+    '~1.2.6',
+  )
+})
+
+test.serial(
+  'should resolve local @napi-rs/wasm-runtime and @napi-rs/async-runtime before hitting registry',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer({
+      'dist-tags': {
+        latest: '9.9.9',
+      },
+    })
+
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const emnapiVersion: string = require('emnapi/package.json').version
+    // Simulate a real @napi-rs/wasm-runtime install whose exports map omits
+    // `./package.json` (as in published 1.2.x versions) and whose
+    // peerDependencies satisfy the active emnapi version.
+    const wasmRuntimeDir = join(
+      tmpDir,
+      'node_modules',
+      '@napi-rs',
+      'wasm-runtime',
+    )
+    await mkdir(wasmRuntimeDir, { recursive: true })
+    await writeFile(
+      join(wasmRuntimeDir, 'package.json'),
+      JSON.stringify({
+        name: '@napi-rs/wasm-runtime',
+        version: '1.2.6',
+        peerDependencies: {
+          '@emnapi/core': `^1.7.1 || ${emnapiVersion}`,
+          '@emnapi/runtime': `^1.7.1 || ${emnapiVersion}`,
+        },
+        exports: {
+          '.': {
+            import: './runtime.js',
+            require: './runtime.cjs',
+          },
+        },
+      }),
+    )
+    await writeFile(
+      join(wasmRuntimeDir, 'runtime.cjs'),
+      'module.exports = {}\n',
+    )
+
+    const asyncRuntimeDir = join(
+      tmpDir,
+      'node_modules',
+      '@napi-rs',
+      'async-runtime',
+    )
+    await mkdir(asyncRuntimeDir, { recursive: true })
+    await writeFile(
+      join(asyncRuntimeDir, 'package.json'),
+      JSON.stringify({
+        name: '@napi-rs/async-runtime',
+        version: '0.2.0',
+        exports: {
+          '.': {
+            import: './index.js',
+            require: './index.cjs',
+          },
+          './package.json': './package.json',
+        },
+      }),
+    )
+    await writeFile(join(asyncRuntimeDir, 'index.cjs'), 'module.exports = {}\n')
+
+    await writeFile(
+      packageJsonPath,
+      JSON.stringify({
+        name: 'test-local-runtime-resolution',
+        version: '1.0.0',
+        napi: {
+          binaryName: 'test-local-runtime-resolution',
+          targets: ['wasm32-wasip1', 'wasm32-wasip1-threads'],
+          wasm: {
+            asyncRuntime: true,
+          },
+        },
+      }),
+    )
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+
+      const expectedWasmRuntime = formatWasmRuntimeDependencyVersion(
+        { version: '1.2.6', fromLocal: true },
+        emnapiVersion,
+      )
+      for (const packageDir of ['wasm32-wasip1', 'wasm32-wasi']) {
+        const scopedPackageJson = JSON.parse(
+          await readFile(
+            join(tmpDir, 'npm', packageDir, 'package.json'),
+            'utf-8',
+          ),
+        )
+        t.is(
+          scopedPackageJson.dependencies['@napi-rs/wasm-runtime'],
+          expectedWasmRuntime,
+        )
+        t.is(scopedPackageJson.dependencies['@napi-rs/async-runtime'], '^0.2.0')
+      }
+      t.deepEqual(registryServer.requests, [])
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
+test.serial(
+  'should fall back to registry only for runtime packages missing locally',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer({
+      'dist-tags': {
+        latest: '0.3.1',
+      },
+    })
+
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const wasmRuntimeDir = join(
+      tmpDir,
+      'node_modules',
+      '@napi-rs',
+      'wasm-runtime',
+    )
+    await mkdir(wasmRuntimeDir, { recursive: true })
+    await writeFile(
+      join(wasmRuntimeDir, 'package.json'),
+      JSON.stringify({
+        name: '@napi-rs/wasm-runtime',
+        version: '1.2.7',
+      }),
+    )
+
+    await writeFile(
+      packageJsonPath,
+      JSON.stringify({
+        name: 'test-mixed-runtime-resolution',
+        version: '1.0.0',
+        napi: {
+          binaryName: 'test-mixed-runtime-resolution',
+          targets: ['wasm32-wasip1'],
+          wasm: {
+            asyncRuntime: true,
+          },
+        },
+      }),
+    )
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+
+      const emnapiVersion = require('emnapi/package.json').version
+      const scopedPackageJson = JSON.parse(
+        await readFile(
+          join(tmpDir, 'npm', 'wasm32-wasip1', 'package.json'),
+          'utf-8',
+        ),
+      )
+      t.is(
+        scopedPackageJson.dependencies['@napi-rs/wasm-runtime'],
+        formatWasmRuntimeDependencyVersion(
+          { version: '1.2.7', fromLocal: true },
+          emnapiVersion,
+        ),
+      )
+      t.is(scopedPackageJson.dependencies['@napi-rs/async-runtime'], '^0.3.1')
+      t.deepEqual(registryServer.requests, ['/npm/@napi-rs/async-runtime'])
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
+test.serial(
+  'should skip local @napi-rs/wasm-runtime when peerDependencies conflict with emnapi and fall back to registry',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer({
+      'dist-tags': {
+        latest: '1.2.7',
+      },
+    })
+
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    const emnapiVersion: string = require('emnapi/package.json').version
+    const conflictingPeerRange = emnapiVersion.startsWith('1.')
+      ? '2.0.0-beta.2'
+      : emnapiVersion === '2.0.0-beta.2'
+        ? '^1.7.1'
+        : '^1.7.1 || 2.0.0-beta.2'
+
+    const wasmRuntimeDir = join(
+      tmpDir,
+      'node_modules',
+      '@napi-rs',
+      'wasm-runtime',
+    )
+    await mkdir(wasmRuntimeDir, { recursive: true })
+    await writeFile(
+      join(wasmRuntimeDir, 'package.json'),
+      JSON.stringify({
+        name: '@napi-rs/wasm-runtime',
+        version: '1.2.6',
+        peerDependencies: {
+          '@emnapi/core': conflictingPeerRange,
+          '@emnapi/runtime': conflictingPeerRange,
+        },
+        exports: {
+          '.': {
+            import: './runtime.js',
+            require: './runtime.cjs',
+          },
+        },
+      }),
+    )
+    await writeFile(
+      join(wasmRuntimeDir, 'runtime.cjs'),
+      'module.exports = {}\n',
+    )
+
+    await writeFile(
+      packageJsonPath,
+      JSON.stringify({
+        name: 'test-incompatible-local-wasm-runtime',
+        version: '1.0.0',
+        napi: {
+          binaryName: 'test-incompatible-local-wasm-runtime',
+          targets: ['wasm32-wasip1'],
+        },
+      }),
+    )
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+
+      const scopedPackageJson = JSON.parse(
+        await readFile(
+          join(tmpDir, 'npm', 'wasm32-wasip1', 'package.json'),
+          'utf-8',
+        ),
+      )
+      t.is(scopedPackageJson.dependencies['@napi-rs/wasm-runtime'], '~1.2.7')
       t.deepEqual(registryServer.requests, ['/npm/@napi-rs/wasm-runtime'])
     } finally {
       await registryServer.close()

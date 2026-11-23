@@ -26,7 +26,9 @@
     "runtime.js",
     "fs-proxy.js",
     "dist/*.cjs",
-    "dist/*.js"
+    "dist/*.js",
+    "dist/fs.packages.json",
+    "dist/THIRD-PARTY-LICENSE"
   ],
   "devDependencies": {
     "@emnapi/core": "2.0.0-beta.3",
@@ -65,6 +67,8 @@
     },
     "./fs": {
       "import": "./dist/fs.js"
-    }
+    },
+    "./fs.packages.json": "./dist/fs.packages.json",
+    "./package.json": "./package.json"
   }
 }

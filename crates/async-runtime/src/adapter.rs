@@ -1,32 +1,54 @@
 //! napi adapter: registers the shared scheduler as the addon's
-//! [`AsyncRuntime`] backend and exports the JavaScript-facing host protocol
-//! (CurrentThread task host, JS timer host + relay, config/metrics).
+//! [`AsyncRuntime`] backend and exports optional JavaScript-facing host
+//! protocol surfaces (CurrentThread task host, JS timer host or record-only
+//! timer host stub, and JS config/metrics).
 //!
-//! Hosts call [`install`] from their own `#[napi_derive::module_init]` hook.
-//! This module deliberately ships no `module_init` of its own: the host must
-//! resolve its runtime configuration (environment variables, defaults) first
-//! and stay in charge of that resolution order.
+//! Hosts call [`install`] or [`install_exact`] from their own
+//! `#[napi_derive::module_init]` hook. This module deliberately ships no
+//! `module_init` of its own: the host must resolve its runtime configuration
+//! (environment variables, defaults) first and stay in charge of that
+//! resolution order.
 
-use std::{future::Future, pin::Pin, ptr};
+#[cfg(feature = "napi-task-host")]
+use std::ptr;
+use std::{future::Future, pin::Pin};
 
+#[cfg(feature = "napi-task-host")]
+use napi::bindgen_prelude::Unknown;
 use napi::bindgen_prelude::{
-  AsyncRuntime, AsyncRuntimeRejection, AsyncRuntimeTask, FnArgs, Promise, Unknown,
-  register_async_runtime,
+  AsyncRuntime, AsyncRuntimeRejection, AsyncRuntimeTask, register_async_runtime,
 };
+#[cfg(feature = "napi-timer-host")]
+use napi::bindgen_prelude::{FnArgs, Promise};
+#[cfg(feature = "napi-timer-host")]
 use napi::threadsafe_function::ThreadsafeFunctionCallMode;
 use napi_derive::napi;
 
+#[cfg(feature = "napi-js-config")]
 use crate::MAX_ASYNC_RUNTIME_WORKER_THREADS;
+#[cfg(feature = "napi-task-host")]
 use crate::async_runtime::{
-  CurrentThreadTaskDelivery, CurrentThreadTaskDriver, CurrentThreadTaskDriverId, RuntimeFlavor,
-  RuntimeMetricsSnapshot, RuntimeOptions, RuntimeOptionsPatch, TimerDriver, TimerDriverId, TimerId,
-  acknowledge_current_thread_task_delivery, begin_shutdown, configure, configure_partial,
-  configured_options, drive_current_thread_tasks, fail_current_thread_task_delivery,
-  finish_shutdown, metrics, register_current_thread_task_driver, register_timer_driver,
-  request_current_thread_task_drain, reset_metrics, runtime_work_pending, shutdown, start,
-  try_block_on_dyn, try_spawn, try_spawn_blocking, try_spawn_detached,
-  unregister_current_thread_task_driver, unregister_timer_driver,
+  CurrentThreadTaskDelivery, CurrentThreadTaskDriver, CurrentThreadTaskDriverId,
+  acknowledge_current_thread_task_delivery, drive_current_thread_tasks,
+  fail_current_thread_task_delivery, register_current_thread_task_driver,
+  request_current_thread_task_drain, unregister_current_thread_task_driver,
 };
+use crate::async_runtime::{
+  RuntimeFlavor, RuntimeOptions, begin_shutdown, configure, finish_shutdown, runtime_work_pending,
+  shutdown, start, try_block_on_dyn, try_spawn, try_spawn_blocking,
+};
+#[cfg(feature = "napi-js-config")]
+use crate::async_runtime::{
+  RuntimeMetricsSnapshot, RuntimeOptionsPatch, configure_partial, configured_options, metrics,
+  reset_metrics,
+};
+#[cfg(feature = "napi-timer-host")]
+use crate::async_runtime::{
+  TimerDriver, TimerDriverId, TimerId, register_timer_driver, try_spawn_detached,
+  unregister_timer_driver,
+};
+use crate::env_config::resolve_drain_linger;
+#[cfg(feature = "napi-timer-host")]
 use crate::js_callback::{InvalidReturnValue, JsCallback};
 
 struct SharedAsyncRuntime;
@@ -127,6 +149,7 @@ impl From<RuntimeFlavor> for BindingRuntimeFlavor {
   }
 }
 
+#[cfg(feature = "napi-js-config")]
 #[napi(object)]
 pub struct BindingRuntimeOptions {
   pub flavor: Option<BindingRuntimeFlavor>,
@@ -136,6 +159,7 @@ pub struct BindingRuntimeOptions {
   pub max_blocking_tasks: Option<f64>,
 }
 
+#[cfg(feature = "napi-js-config")]
 impl TryFrom<BindingRuntimeOptions> for RuntimeOptionsPatch {
   type Error = napi::Error;
 
@@ -159,6 +183,7 @@ impl TryFrom<BindingRuntimeOptions> for RuntimeOptionsPatch {
   }
 }
 
+#[cfg(feature = "napi-js-config")]
 fn validate_binding_thread_count(
   field: &str,
   value: Option<f64>,
@@ -188,6 +213,7 @@ fn validate_binding_thread_count(
     .transpose()
 }
 
+#[cfg(feature = "napi-js-config")]
 #[napi(object)]
 pub struct BindingRuntimeConfig {
   pub flavor: BindingRuntimeFlavor,
@@ -198,6 +224,7 @@ pub struct BindingRuntimeConfig {
   pub drain_linger_us: u32,
 }
 
+#[cfg(feature = "napi-js-config")]
 impl From<RuntimeOptions> for BindingRuntimeConfig {
   fn from(value: RuntimeOptions) -> Self {
     Self {
@@ -211,6 +238,7 @@ impl From<RuntimeOptions> for BindingRuntimeConfig {
   }
 }
 
+#[cfg(feature = "napi-js-config")]
 #[napi(object)]
 pub struct BindingRuntimeMetrics {
   pub flavor: BindingRuntimeFlavor,
@@ -231,6 +259,7 @@ pub struct BindingRuntimeMetrics {
   pub max_active_blocking_tasks: f64,
 }
 
+#[cfg(feature = "napi-js-config")]
 impl From<RuntimeMetricsSnapshot> for BindingRuntimeMetrics {
   fn from(value: RuntimeMetricsSnapshot) -> Self {
     Self {
@@ -254,12 +283,15 @@ impl From<RuntimeMetricsSnapshot> for BindingRuntimeMetrics {
   }
 }
 
+#[cfg(feature = "napi-js-config")]
 fn saturating_u32(value: u64) -> u32 {
   u32::try_from(value).unwrap_or(u32::MAX)
 }
 
+#[cfg(feature = "napi-js-config")]
 const MAX_SAFE_JS_INTEGER: u64 = (1_u64 << 53) - 1;
 
+#[cfg(feature = "napi-js-config")]
 #[expect(
   clippy::cast_precision_loss,
   reason = "the value is clamped to JavaScript's exactly representable integer range"
@@ -268,6 +300,7 @@ fn safe_js_number(value: u64) -> f64 {
   value.min(MAX_SAFE_JS_INTEGER) as f64
 }
 
+#[cfg(feature = "napi-js-config")]
 #[napi]
 /// Override the shared async runtime's flavor and thread counts.
 ///
@@ -277,6 +310,7 @@ pub fn configure_async_runtime(options: BindingRuntimeOptions) -> napi::Result<(
     .map_err(|error| napi::Error::from_reason(error.to_string()))
 }
 
+#[cfg(feature = "napi-js-config")]
 #[napi]
 /// Return the effective async runtime configuration.
 ///
@@ -287,12 +321,14 @@ pub fn get_async_runtime_config() -> BindingRuntimeConfig {
   configured_options().into()
 }
 
+#[cfg(feature = "napi-js-config")]
 #[napi]
 /// Return a snapshot of the shared async runtime's task and scheduler counters.
 pub fn get_async_runtime_metrics() -> BindingRuntimeMetrics {
   metrics().into()
 }
 
+#[cfg(feature = "napi-js-config")]
 #[napi]
 /// Reset cumulative async runtime event counters to zero.
 ///
@@ -302,12 +338,14 @@ pub fn reset_async_runtime_metrics() {
   reset_metrics();
 }
 
+#[cfg(feature = "napi-task-host")]
 #[napi(object)]
 pub struct BindingHostRegistration {
   pub high: u32,
   pub low: u32,
 }
 
+#[cfg(feature = "napi-task-host")]
 impl BindingHostRegistration {
   fn from_id(id: u64) -> Self {
     Self {
@@ -322,13 +360,16 @@ impl BindingHostRegistration {
   }
 }
 
+#[cfg(feature = "napi-task-host")]
 static NEXT_HOST_REGISTRATION_ID: std::sync::atomic::AtomicU64 =
   std::sync::atomic::AtomicU64::new(1);
 
+#[cfg(feature = "napi-task-host")]
 static RESERVED_HOST_REGISTRATIONS: std::sync::LazyLock<
   std::sync::Mutex<rustc_hash::FxHashSet<u64>>,
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(rustc_hash::FxHashSet::default()));
 
+#[cfg(feature = "napi-task-host")]
 fn reserve_host_registration_id() -> napi::Result<u64> {
   let id = NEXT_HOST_REGISTRATION_ID
     .fetch_update(
@@ -349,6 +390,7 @@ fn reserve_host_registration_id() -> napi::Result<u64> {
   Ok(id)
 }
 
+#[cfg(feature = "napi-task-host")]
 fn claim_host_registration_id(registration_high: u32, registration_low: u32) -> napi::Result<u64> {
   let id = BindingHostRegistration::id(registration_high, registration_low);
   if RESERVED_HOST_REGISTRATIONS
@@ -365,6 +407,7 @@ fn claim_host_registration_id(registration_high: u32, registration_low: u32) -> 
   }
 }
 
+#[cfg(feature = "napi-task-host")]
 fn release_host_registration_id(id: u64) {
   RESERVED_HOST_REGISTRATIONS
     .lock()
@@ -372,6 +415,7 @@ fn release_host_registration_id(id: u64) {
     .remove(&id);
 }
 
+#[cfg(feature = "napi-task-host")]
 #[napi]
 /// Reserve an exact CurrentThread host registration capability before either
 /// task or timer installation performs side effects. The JavaScript package
@@ -380,6 +424,7 @@ pub fn reserve_current_thread_host_registration() -> napi::Result<BindingHostReg
   reserve_host_registration_id().map(BindingHostRegistration::from_id)
 }
 
+#[cfg(feature = "napi-task-host")]
 fn current_thread_task_host_napi_result(
   status: napi::sys::napi_status,
   context: &'static str,
@@ -391,6 +436,7 @@ fn current_thread_task_host_napi_result(
   }
 }
 
+#[cfg(feature = "napi-task-host")]
 fn contain_current_thread_task_host_unwind<T>(operation: impl FnOnce() -> T) -> Option<T> {
   match std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation)) {
     Ok(value) => Some(value),
@@ -404,7 +450,7 @@ fn contain_current_thread_task_host_unwind<T>(operation: impl FnOnce() -> T) -> 
   }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "napi-task-host"))]
 thread_local! {
   static NATIVE_TASK_HOST_AFTER_DRIVE_TEST_HOOK:
     std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
@@ -414,14 +460,14 @@ thread_local! {
       const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "napi-task-host"))]
 fn run_native_task_host_after_drive_test_hook() {
   if let Some(hook) = NATIVE_TASK_HOST_AFTER_DRIVE_TEST_HOOK.with(|slot| slot.borrow_mut().take()) {
     hook();
   }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "napi-task-host"))]
 fn run_native_task_host_after_payload_drop_test_hook() {
   if let Some(hook) =
     NATIVE_TASK_HOST_AFTER_PAYLOAD_DROP_TEST_HOOK.with(|slot| slot.borrow_mut().take())
@@ -430,6 +476,7 @@ fn run_native_task_host_after_payload_drop_test_hook() {
   }
 }
 
+#[cfg(feature = "napi-task-host")]
 unsafe extern "C" fn finalize_native_current_thread_task_host(
   _env: napi::sys::napi_env,
   finalize_data: *mut std::ffi::c_void,
@@ -448,6 +495,7 @@ unsafe extern "C" fn finalize_native_current_thread_task_host(
   });
 }
 
+#[cfg(feature = "napi-task-host")]
 unsafe extern "C" fn call_native_current_thread_task_host(
   env: napi::sys::napi_env,
   _js_callback: napi::sys::napi_value,
@@ -492,12 +540,14 @@ unsafe extern "C" fn call_native_current_thread_task_host(
   let _ = contain_current_thread_task_host_unwind(|| drop(callback_lease));
 }
 
+#[cfg(feature = "napi-task-host")]
 struct NativeCurrentThreadTaskHostPayload {
   delivery: CurrentThreadTaskDelivery,
   #[cfg(test)]
   drop_observer: Option<std::sync::Arc<std::sync::atomic::AtomicUsize>>,
 }
 
+#[cfg(feature = "napi-task-host")]
 impl NativeCurrentThreadTaskHostPayload {
   fn new(delivery: CurrentThreadTaskDelivery) -> Self {
     Self {
@@ -519,7 +569,7 @@ impl NativeCurrentThreadTaskHostPayload {
   }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "napi-task-host"))]
 impl Drop for NativeCurrentThreadTaskHostPayload {
   fn drop(&mut self) {
     if let Some(observer) = &self.drop_observer {
@@ -529,10 +579,12 @@ impl Drop for NativeCurrentThreadTaskHostPayload {
 }
 
 // See the implementation notes in this crate's README.
+#[cfg(feature = "napi-task-host")]
 struct NativeCurrentThreadTaskHost {
   inner: std::sync::Arc<NativeCurrentThreadTaskHostInner>,
 }
 
+#[cfg(feature = "napi-task-host")]
 struct NativeCurrentThreadTaskHostInner {
   threadsafe_function: std::sync::Mutex<Option<usize>>,
   dead: std::sync::atomic::AtomicBool,
@@ -541,10 +593,12 @@ struct NativeCurrentThreadTaskHostInner {
   registration: std::sync::Mutex<Option<CurrentThreadTaskDriverId>>,
 }
 
+#[cfg(feature = "napi-task-host")]
 static NATIVE_CURRENT_THREAD_TASK_HOSTS: std::sync::LazyLock<
   std::sync::Mutex<rustc_hash::FxHashMap<u64, std::sync::Weak<NativeCurrentThreadTaskHostInner>>>,
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(rustc_hash::FxHashMap::default()));
 
+#[cfg(feature = "napi-task-host")]
 fn registered_current_thread_task_host(
   id: u64,
 ) -> Option<std::sync::Arc<NativeCurrentThreadTaskHostInner>> {
@@ -558,6 +612,7 @@ fn registered_current_thread_task_host(
   inner
 }
 
+#[cfg(feature = "napi-task-host")]
 impl NativeCurrentThreadTaskHostInner {
   fn new(env: &napi::Env, host_registration: u64) -> napi::Result<std::sync::Arc<Self>> {
     const ASYNC_RESOURCE_NAME: &[u8] = b"napi_async_runtime_current_thread_task_host";
@@ -795,6 +850,7 @@ impl NativeCurrentThreadTaskHostInner {
   }
 }
 
+#[cfg(feature = "napi-task-host")]
 impl CurrentThreadTaskDriver for NativeCurrentThreadTaskHost {
   fn dispatch(&self, delivery: CurrentThreadTaskDelivery) -> bool {
     self.inner.dispatch(delivery)
@@ -811,6 +867,7 @@ impl CurrentThreadTaskDriver for NativeCurrentThreadTaskHost {
   }
 }
 
+#[cfg(feature = "napi-task-host")]
 fn reject_current_thread_task_host_callback(dispatch: Option<Unknown<'_>>) -> napi::Result<()> {
   if dispatch.is_none() {
     Ok(())
@@ -822,8 +879,10 @@ fn reject_current_thread_task_host_callback(dispatch: Option<Unknown<'_>>) -> na
   }
 }
 
+#[cfg(feature = "napi-task-host")]
 const CURRENT_THREAD_TASK_HOST_CONTRACT_VERSION: u32 = 4;
 
+#[cfg(feature = "napi-task-host")]
 #[napi]
 /// Return the native CurrentThread task-host ABI expected by the JavaScript
 /// package before it invokes either async-runtime host registration. Version 4
@@ -833,6 +892,26 @@ pub fn get_current_thread_task_host_contract_version() -> u32 {
   CURRENT_THREAD_TASK_HOST_CONTRACT_VERSION
 }
 
+#[cfg(feature = "napi-timer-host")]
+fn is_timer_host_registration_active(id: u64) -> bool {
+  registered_timer_host(id).is_some_and(|inner| inner.is_live())
+}
+
+#[cfg(all(feature = "napi-timer-host-stub", not(feature = "napi-timer-host")))]
+fn is_timer_host_registration_active(id: u64) -> bool {
+  timer_host_registrations().contains(&id)
+}
+
+#[cfg(all(
+  feature = "napi-task-host",
+  not(feature = "napi-timer-host"),
+  not(feature = "napi-timer-host-stub")
+))]
+fn is_timer_host_registration_active(_id: u64) -> bool {
+  false
+}
+
+#[cfg(feature = "napi-task-host")]
 #[napi]
 /// Return whether one exact CurrentThread task- or timer-host registration is
 /// still live. The JavaScript package revalidates its process-global marker on
@@ -844,9 +923,10 @@ pub fn is_current_thread_host_registration_active(
 ) -> bool {
   let id = BindingHostRegistration::id(registration_high, registration_low);
   registered_current_thread_task_host(id).is_some_and(|inner| inner.is_live())
-    || registered_timer_host(id).is_some_and(|inner| inner.is_live())
+    || is_timer_host_registration_active(id)
 }
 
+#[cfg(feature = "napi-task-host")]
 fn install_cleanup_hook_or_rollback<T>(
   install: impl FnOnce() -> napi::Result<T>,
   rollback: impl FnOnce(),
@@ -860,6 +940,7 @@ fn install_cleanup_hook_or_rollback<T>(
   }
 }
 
+#[cfg(feature = "napi-timer-host")]
 fn install_host_driver_registration<T>(
   dead: &std::sync::atomic::AtomicBool,
   registration: &std::sync::Mutex<Option<T>>,
@@ -890,6 +971,7 @@ fn install_host_driver_registration<T>(
   }
 }
 
+#[cfg(feature = "napi-task-host")]
 #[napi(ts_args_type = "registrationHigh: number, registrationLow: number, dispatch?: never")]
 /// Install a native-owned host turn used to poll CurrentThread runnables
 /// without re-entering arbitrary future waker locks. Called once per importing
@@ -931,6 +1013,7 @@ pub fn register_current_thread_task_host(
   Ok(())
 }
 
+#[cfg(feature = "napi-task-host")]
 #[napi]
 /// Evict exactly one native host installed by `registerCurrentThreadTaskHost`.
 /// Managed workerd disposal uses this before environment cleanup so a later
@@ -968,15 +1051,18 @@ pub fn unregister_current_thread_task_host(registration_high: u32, registration_
 /// function's `aborted` flag) and by relay-call failure. Eviction wakes every
 /// sleep armed here so each re-polls onto the registry's next live registrant
 /// (see `TimerDriverRegistry`).
+#[cfg(feature = "napi-timer-host")]
 struct JsTimerHost {
   inner: std::sync::Arc<JsTimerHostInner>,
 }
 
+#[cfg(feature = "napi-timer-host")]
 #[derive(Default)]
 struct RelayIdAllocator {
   next: std::sync::atomic::AtomicU64,
 }
 
+#[cfg(feature = "napi-timer-host")]
 impl RelayIdAllocator {
   fn reserve(&self) -> Result<u32, RelayIdExhausted> {
     self
@@ -991,9 +1077,11 @@ impl RelayIdAllocator {
   }
 }
 
+#[cfg(feature = "napi-timer-host")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct RelayIdExhausted;
 
+#[cfg(feature = "napi-timer-host")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 enum RelayCancellationAccounting {
@@ -1001,11 +1089,13 @@ enum RelayCancellationAccounting {
   CleanupOnly = 1,
 }
 
+#[cfg(feature = "napi-timer-host")]
 struct HostTimerRelayHealth {
   cancellation_accounting: std::sync::atomic::AtomicU8,
   failure_recorded: std::sync::atomic::AtomicBool,
 }
 
+#[cfg(feature = "napi-timer-host")]
 impl Default for HostTimerRelayHealth {
   fn default() -> Self {
     Self {
@@ -1017,6 +1107,7 @@ impl Default for HostTimerRelayHealth {
   }
 }
 
+#[cfg(feature = "napi-timer-host")]
 impl HostTimerRelayHealth {
   fn set_cancellation_accounting(&self, accounting: RelayCancellationAccounting) {
     self
@@ -1064,6 +1155,7 @@ impl HostTimerRelayHealth {
 /// failures the host is evicted anyway (announced in the log). Reset on any
 /// successful relay. Small on purpose: each strike costs one wasted arm/wake
 /// round-trip for the affected sleep.
+#[cfg(feature = "napi-timer-host")]
 const HOST_TIMER_MAX_TRANSIENT_FAILURES: u32 = 3;
 
 /// Does this relay error mean the HOST IS GONE (evict immediately), as
@@ -1093,10 +1185,12 @@ const HOST_TIMER_MAX_TRANSIENT_FAILURES: u32 = 3;
 /// at the next selection, or by the next relay failure (which will probe
 /// dead) -> bounded, correct. A LIVE host's failure -- whatever its message
 /// says -- takes the strike path.
+#[cfg(feature = "napi-timer-host")]
 fn should_evict_for_relay_error(status: napi::Status, host_is_live: bool) -> bool {
   status == napi::Status::Closing || !host_is_live
 }
 
+#[cfg(feature = "napi-timer-host")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HostTimerFailureAction {
   Duplicate,
@@ -1105,6 +1199,7 @@ enum HostTimerFailureAction {
   Retry(u32),
 }
 
+#[cfg(feature = "napi-timer-host")]
 fn record_host_timer_failure(
   transient_failures: &std::sync::atomic::AtomicU32,
   relay_health: &HostTimerRelayHealth,
@@ -1125,6 +1220,7 @@ fn record_host_timer_failure(
   }
 }
 
+#[cfg(feature = "napi-timer-host")]
 fn reset_host_timer_failures_after_success(
   transient_failures: &std::sync::atomic::AtomicU32,
   relay_health: &HostTimerRelayHealth,
@@ -1134,6 +1230,7 @@ fn reset_host_timer_failures_after_success(
   }
 }
 
+#[cfg(feature = "napi-timer-host")]
 struct JsTimerHostInner {
   callback: JsCallback<FnArgs<(u32, f64)>, Promise<()>>,
   cancel_callback: JsCallback<FnArgs<(u32,)>, ()>,
@@ -1155,10 +1252,12 @@ struct JsTimerHostInner {
   transient_failures: std::sync::atomic::AtomicU32,
 }
 
+#[cfg(feature = "napi-timer-host")]
 static JS_TIMER_HOSTS: std::sync::LazyLock<
   std::sync::Mutex<rustc_hash::FxHashMap<u64, std::sync::Weak<JsTimerHostInner>>>,
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(rustc_hash::FxHashMap::default()));
 
+#[cfg(feature = "napi-timer-host")]
 fn registered_timer_host(id: u64) -> Option<std::sync::Arc<JsTimerHostInner>> {
   let mut registrations = JS_TIMER_HOSTS
     .lock()
@@ -1170,6 +1269,7 @@ fn registered_timer_host(id: u64) -> Option<std::sync::Arc<JsTimerHostInner>> {
   inner
 }
 
+#[cfg(feature = "napi-timer-host")]
 struct PendingHostTimer {
   cancellation: Option<futures::channel::oneshot::Sender<()>>,
   relay_health: std::sync::Arc<HostTimerRelayHealth>,
@@ -1178,6 +1278,7 @@ struct PendingHostTimer {
   schedule_state: RelayScheduleState,
 }
 
+#[cfg(feature = "napi-timer-host")]
 impl PendingHostTimer {
   fn signal_native_cancellation(&mut self) {
     if let Some(sender) = self.cancellation.take() {
@@ -1186,12 +1287,14 @@ impl PendingHostTimer {
   }
 }
 
+#[cfg(feature = "napi-timer-host")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RelayScheduleState {
   AwaitingCallback,
   CallbackComplete,
 }
 
+#[cfg(feature = "napi-timer-host")]
 trait PendingRelayState: Send + Sync + 'static {
   fn take_pending_relay(
     &self,
@@ -1210,6 +1313,7 @@ trait PendingRelayState: Send + Sync + 'static {
   );
 }
 
+#[cfg(feature = "napi-timer-host")]
 struct PendingRelayDropGuard<T: PendingRelayState> {
   state: std::sync::Arc<T>,
   id: TimerId,
@@ -1217,6 +1321,7 @@ struct PendingRelayDropGuard<T: PendingRelayState> {
   cleanup_on_drop: bool,
 }
 
+#[cfg(feature = "napi-timer-host")]
 impl<T: PendingRelayState> PendingRelayDropGuard<T> {
   fn new(state: std::sync::Arc<T>, id: TimerId, relay_id: u32) -> Self {
     Self {
@@ -1232,6 +1337,7 @@ impl<T: PendingRelayState> PendingRelayDropGuard<T> {
   }
 }
 
+#[cfg(feature = "napi-timer-host")]
 impl<T: PendingRelayState> Drop for PendingRelayDropGuard<T> {
   fn drop(&mut self) {
     if !self.cleanup_on_drop {
@@ -1251,6 +1357,7 @@ impl<T: PendingRelayState> Drop for PendingRelayDropGuard<T> {
   }
 }
 
+#[cfg(feature = "napi-timer-host")]
 enum PendingHostTimerRegistration {
   Refreshed(std::task::Waker),
   Armed {
@@ -1261,6 +1368,7 @@ enum PendingHostTimerRegistration {
   Exhausted(std::task::Waker),
 }
 
+#[cfg(feature = "napi-timer-host")]
 fn register_pending_host_timer_locked(
   pending: &mut rustc_hash::FxHashMap<TimerId, PendingHostTimer>,
   relay_ids: &RelayIdAllocator,
@@ -1292,7 +1400,7 @@ fn register_pending_host_timer_locked(
   }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "napi-timer-host"))]
 fn register_pending_host_timer(
   pending: &std::sync::Mutex<rustc_hash::FxHashMap<TimerId, PendingHostTimer>>,
   relay_ids: &RelayIdAllocator,
@@ -1305,6 +1413,7 @@ fn register_pending_host_timer(
   register_pending_host_timer_locked(&mut pending, relay_ids, id, waker)
 }
 
+#[cfg(feature = "napi-timer-host")]
 fn register_pending_host_timer_if_live(
   pending: &std::sync::Mutex<rustc_hash::FxHashMap<TimerId, PendingHostTimer>>,
   relay_ids: &RelayIdAllocator,
@@ -1326,6 +1435,7 @@ fn register_pending_host_timer_if_live(
   ))
 }
 
+#[cfg(feature = "napi-timer-host")]
 fn take_pending_host_timers(
   pending: &std::sync::Mutex<rustc_hash::FxHashMap<TimerId, PendingHostTimer>>,
   accounting: RelayCancellationAccounting,
@@ -1339,6 +1449,7 @@ fn take_pending_host_timers(
   std::mem::take(&mut *pending)
 }
 
+#[cfg(feature = "napi-timer-host")]
 fn take_pending_host_timer(
   pending: &std::sync::Mutex<rustc_hash::FxHashMap<TimerId, PendingHostTimer>>,
   id: TimerId,
@@ -1363,6 +1474,7 @@ fn take_pending_host_timer(
   }
 }
 
+#[cfg(feature = "napi-timer-host")]
 fn run_host_timer_cleanup_safely(cleanup: impl FnOnce()) {
   if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(cleanup))
     && let Err(nested_payload) =
@@ -1375,6 +1487,7 @@ fn run_host_timer_cleanup_safely(cleanup: impl FnOnce()) {
   }
 }
 
+#[cfg(feature = "napi-timer-host")]
 fn retire_pending_relay<T: PendingRelayState>(
   state: &std::sync::Arc<T>,
   mut pending: PendingHostTimer,
@@ -1390,6 +1503,7 @@ fn retire_pending_relay<T: PendingRelayState>(
   wake_host_timer_safely(pending.waker);
 }
 
+#[cfg(feature = "napi-timer-host")]
 fn retire_pending_relays<T: PendingRelayState>(
   state: &std::sync::Arc<T>,
   pending: rustc_hash::FxHashMap<TimerId, PendingHostTimer>,
@@ -1399,6 +1513,7 @@ fn retire_pending_relays<T: PendingRelayState>(
   }
 }
 
+#[cfg(feature = "napi-timer-host")]
 fn complete_relay_schedule_callback<T: PendingRelayState, R>(
   state: &std::sync::Arc<T>,
   id: TimerId,
@@ -1419,6 +1534,7 @@ fn complete_relay_schedule_callback<T: PendingRelayState, R>(
   run_host_timer_cleanup_safely(|| deliver(result));
 }
 
+#[cfg(feature = "napi-timer-host")]
 fn normalize_timer_schedule_result(
   result: napi::Result<napi::Either<Promise<()>, InvalidReturnValue>>,
 ) -> napi::Result<Promise<()>> {
@@ -1435,6 +1551,7 @@ fn normalize_timer_schedule_result(
   }
 }
 
+#[cfg(feature = "napi-timer-host")]
 fn wake_host_timer_safely(waker: std::task::Waker) {
   // Host eviction runs from a napi env cleanup hook. A custom RawWaker must
   // not unwind through that FFI boundary or abort the remaining timer drain.
@@ -1444,10 +1561,12 @@ fn wake_host_timer_safely(waker: std::task::Waker) {
   run_host_timer_cleanup_safely(|| drop(waker));
 }
 
+#[cfg(feature = "napi-timer-host")]
 fn drop_host_timer_waker_safely(waker: std::task::Waker) {
   run_host_timer_cleanup_safely(|| drop(waker));
 }
 
+#[cfg(feature = "napi-timer-host")]
 fn recover_host_timer_failure(recover: impl FnOnce(), diagnostic: std::fmt::Arguments<'_>) {
   recover();
   run_host_timer_cleanup_safely(|| {
@@ -1456,6 +1575,7 @@ fn recover_host_timer_failure(recover: impl FnOnce(), diagnostic: std::fmt::Argu
   });
 }
 
+#[cfg(feature = "napi-timer-host")]
 impl JsTimerHostInner {
   fn lock_pending(
     &self,
@@ -1684,6 +1804,7 @@ impl JsTimerHostInner {
   }
 }
 
+#[cfg(feature = "napi-timer-host")]
 impl PendingRelayState for JsTimerHostInner {
   fn take_pending_relay(
     &self,
@@ -1707,6 +1828,7 @@ impl PendingRelayState for JsTimerHostInner {
   }
 }
 
+#[cfg(feature = "napi-timer-host")]
 impl TimerDriver for JsTimerHost {
   fn register(&self, id: TimerId, deadline: std::time::Instant, waker: std::task::Waker) {
     if !self.inner.is_live() {
@@ -1910,6 +2032,7 @@ impl TimerDriver for JsTimerHost {
   }
 }
 
+#[cfg(feature = "napi-timer-host")]
 #[napi(
   ts_args_type = "registrationHigh: number, registrationLow: number, schedule: (id: number, ms: number) => Promise<void>, cancel: (id: number) => void"
 )]
@@ -1972,6 +2095,7 @@ pub fn register_timer_host(
   Ok(())
 }
 
+#[cfg(feature = "napi-timer-host")]
 #[napi]
 /// Evict exactly one callback installed by `registerTimerHost`.
 /// Pending sleeps are woken so they can reselect another live environment.
@@ -1983,6 +2107,83 @@ pub fn unregister_timer_host(registration_high: u32, registration_low: u32) {
   }
 }
 
+/// Live `registerTimerHost` registrations for the record-only stub feature
+/// (`napi-timer-host-stub`, active only when `napi-timer-host` is not enabled).
+///
+/// No `TimerDriver` backs these registrations: the JS loaders still satisfy
+/// contract version 4 (reservations are claimed, reported active by
+/// `isCurrentThreadHostRegistrationActive`, and cleaned up on env teardown or
+/// `unregisterTimerHost`), while a CurrentThread `sleep_until` still hits the
+/// scheduler's "no live timer driver" panic.
+#[cfg(all(feature = "napi-timer-host-stub", not(feature = "napi-timer-host")))]
+static TIMER_HOST_REGISTRATIONS: std::sync::LazyLock<std::sync::Mutex<rustc_hash::FxHashSet<u64>>> =
+  std::sync::LazyLock::new(|| std::sync::Mutex::new(rustc_hash::FxHashSet::default()));
+
+#[cfg(all(feature = "napi-timer-host-stub", not(feature = "napi-timer-host")))]
+fn timer_host_registrations() -> std::sync::MutexGuard<'static, rustc_hash::FxHashSet<u64>> {
+  TIMER_HOST_REGISTRATIONS
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(all(feature = "napi-timer-host-stub", not(feature = "napi-timer-host")))]
+fn record_timer_host_registration(id: u64) {
+  timer_host_registrations().insert(id);
+}
+
+#[cfg(all(feature = "napi-timer-host-stub", not(feature = "napi-timer-host")))]
+fn forget_timer_host_registration(id: u64) {
+  timer_host_registrations().remove(&id);
+}
+
+#[cfg(all(feature = "napi-timer-host-stub", not(feature = "napi-timer-host")))]
+#[napi(
+  ts_args_type = "registrationHigh: number, registrationLow: number, schedule: (id: number, ms: number) => Promise<void>, cancel: (id: number) => void"
+)]
+/// Accept the host timer callbacks of the CurrentThread host contract without
+/// installing a JavaScript timer relay. Registrations are tracked for liveness
+/// and released on environment cleanup or `unregisterTimerHost`.
+pub fn register_timer_host(
+  env: &napi::Env,
+  registration_high: u32,
+  registration_low: u32,
+  _schedule: Unknown<'_>,
+  _cancel: Unknown<'_>,
+) -> napi::Result<()> {
+  let id = claim_host_registration_id(registration_high, registration_low)?;
+  record_timer_host_registration(id);
+  install_cleanup_hook_or_rollback(
+    || {
+      env.add_env_cleanup_hook(id, |id| {
+        let _ = contain_current_thread_task_host_unwind(|| forget_timer_host_registration(id));
+      })
+    },
+    || forget_timer_host_registration(id),
+  )
+}
+
+#[cfg(all(feature = "napi-timer-host-stub", not(feature = "napi-timer-host")))]
+#[napi]
+/// Evict one registration made by `registerTimerHost`.
+pub fn unregister_timer_host(registration_high: u32, registration_low: u32) {
+  let id = BindingHostRegistration::id(registration_high, registration_low);
+  release_host_registration_id(id);
+  forget_timer_host_registration(id);
+}
+
+/// Configure the shared scheduler with `options` verbatim (without reading any
+/// environment variable) and register it as this addon's napi [`AsyncRuntime`]
+/// backend.
+///
+/// Prefer this over [`install`] when the host owns its entire configuration
+/// resolution (for example, keeping `drain_linger` at the host-resolved value
+/// without consulting [`crate::DRAIN_LINGER_ENV`]).
+pub fn install_exact(options: RuntimeOptions) -> napi::Result<()> {
+  configure(options).map_err(|error| napi::Error::from_reason(error.to_string()))?;
+  register_async_runtime(SharedAsyncRuntime);
+  Ok(())
+}
+
 /// Configure the shared scheduler and register it as this addon's napi
 /// [`AsyncRuntime`] backend.
 ///
@@ -1990,81 +2191,48 @@ pub fn unregister_timer_host(registration_high: u32, registration_low: u32) {
 /// resolving the process configuration (environment variables, defaults) into
 /// [`RuntimeOptions`]. The scheduler never reads the environment itself; the
 /// host owns that resolution -- with ONE adapter-owned convenience: `install`
-/// resolves the conventional [`DRAIN_LINGER_ENV`] override into
+/// resolves the conventional [`crate::DRAIN_LINGER_ENV`] override into
 /// [`RuntimeOptions::drain_linger`] here, at the same addon-load boundary
 /// where the host resolves its variables (a present numeric value wins over
 /// the passed field; absent or non-numeric keeps it -- see
-/// [`resolve_drain_linger`]). Hosts that call [`configure`] directly instead
-/// of `install` own that resolution too. `configure` validates and normalizes
-/// the options (clamping `drain_linger` to its ceiling), and the runtime
-/// controller's options remain the reporting authority for
+/// [`resolve_drain_linger`]). Hosts that want zero adapter-side environment
+/// reads can call [`install_exact`] instead. `configure` validates and
+/// normalizes the options (clamping `drain_linger` to its ceiling), and the
+/// runtime controller's options remain the reporting authority for
 /// `getAsyncRuntimeConfig`.
 pub fn install(mut options: RuntimeOptions) -> napi::Result<()> {
   if let Ok(raw) = std::env::var(crate::async_runtime::DRAIN_LINGER_ENV) {
     options.drain_linger = resolve_drain_linger(Some(raw), options.drain_linger);
   }
-  configure(options).map_err(|error| napi::Error::from_reason(error.to_string()))?;
-  register_async_runtime(SharedAsyncRuntime);
-  Ok(())
-}
-
-/// Resolve an env-derived thread count: parse the raw value, treat a missing,
-/// non-numeric, OR zero value as "unset" and fall back to `default`, then
-/// clamp the result to `maximum`. A `0` must never survive here because the
-/// host's module-init path feeds this count into a constructor that rejects
-/// `0`: [`RuntimeOptions`] validation rejects a `0` thread count, which would
-/// panic an `expect()` during addon load over what may be a simple typo in an
-/// environment variable.
-pub fn resolve_thread_count(raw: Option<String>, default: usize, maximum: usize) -> usize {
-  assert!(default > 0, "the default thread count must be positive");
-  assert!(maximum > 0, "the maximum thread count must be positive");
-  raw
-    .and_then(|value| value.parse::<usize>().ok())
-    .filter(|&value| value != 0)
-    .unwrap_or(default)
-    .min(maximum)
-}
-
-/// Resolve an env-derived drainer idle-linger budget (a raw
-/// [`DRAIN_LINGER_ENV`]-style value, MICROSECONDS) into
-/// [`RuntimeOptions::drain_linger`]: a missing or non-numeric value keeps
-/// `fallback` (the host-provided field, [`DEFAULT_DRAIN_LINGER_MICROS`] by
-/// default); `0` disables lingering; anything else is clamped to
-/// [`MAX_DRAIN_LINGER_MICROS`] so an extreme value (e.g. `u64::MAX`) tunes
-/// the wave optimization instead of pinning pool workers on never-expiring
-/// lingers. [`RuntimeOptions`] validation re-applies the same clamp, so a
-/// host bypassing this resolver cannot smuggle an unbounded budget either.
-pub fn resolve_drain_linger(
-  raw: Option<String>,
-  fallback: std::time::Duration,
-) -> std::time::Duration {
-  raw
-    .and_then(|value| value.trim().parse::<u64>().ok())
-    .map_or(fallback, std::time::Duration::from_micros)
-    .min(std::time::Duration::from_micros(
-      crate::async_runtime::MAX_DRAIN_LINGER_MICROS,
-    ))
+  install_exact(options)
 }
 
 #[cfg(test)]
 mod tests {
+  use super::SharedAsyncRuntime;
+  #[cfg(feature = "napi-task-host")]
   use super::{
-    BindingHostRegistration, BindingRuntimeFlavor, BindingRuntimeOptions,
-    HOST_TIMER_MAX_TRANSIENT_FAILURES, HostTimerFailureAction, HostTimerRelayHealth,
-    MAX_SAFE_JS_INTEGER, NATIVE_TASK_HOST_AFTER_DRIVE_TEST_HOOK,
+    BindingHostRegistration, NATIVE_TASK_HOST_AFTER_DRIVE_TEST_HOOK,
     NATIVE_TASK_HOST_AFTER_PAYLOAD_DROP_TEST_HOOK, NativeCurrentThreadTaskHostInner,
-    NativeCurrentThreadTaskHostPayload, PendingHostTimer, PendingHostTimerRegistration,
-    PendingRelayDropGuard, PendingRelayState, RelayCancellationAccounting, RelayIdAllocator,
-    RelayScheduleState, SharedAsyncRuntime, call_native_current_thread_task_host,
-    claim_host_registration_id, complete_relay_schedule_callback,
-    get_current_thread_task_host_contract_version, install_cleanup_hook_or_rollback,
-    install_host_driver_registration, record_host_timer_failure, recover_host_timer_failure,
-    register_pending_host_timer, register_pending_host_timer_if_live,
-    reserve_current_thread_host_registration, reset_host_timer_failures_after_success,
-    resolve_thread_count, retire_pending_relay, retire_pending_relays, safe_js_number,
-    take_pending_host_timers, unregister_current_thread_task_host, wake_host_timer_safely,
+    NativeCurrentThreadTaskHostPayload, call_native_current_thread_task_host,
+    claim_host_registration_id, get_current_thread_task_host_contract_version,
+    install_cleanup_hook_or_rollback, reserve_current_thread_host_registration,
+    unregister_current_thread_task_host,
+  };
+  #[cfg(feature = "napi-js-config")]
+  use super::{BindingRuntimeFlavor, BindingRuntimeOptions, MAX_SAFE_JS_INTEGER, safe_js_number};
+  #[cfg(feature = "napi-timer-host")]
+  use super::{
+    HOST_TIMER_MAX_TRANSIENT_FAILURES, HostTimerFailureAction, HostTimerRelayHealth,
+    PendingHostTimer, PendingHostTimerRegistration, PendingRelayDropGuard, PendingRelayState,
+    RelayCancellationAccounting, RelayIdAllocator, RelayScheduleState,
+    complete_relay_schedule_callback, install_host_driver_registration, record_host_timer_failure,
+    recover_host_timer_failure, register_pending_host_timer, register_pending_host_timer_if_live,
+    reset_host_timer_failures_after_success, retire_pending_relay, retire_pending_relays,
+    take_pending_host_timers, wake_host_timer_safely,
   };
 
+  #[cfg(feature = "napi-timer-host")]
   #[derive(Default)]
   struct TestPendingRelayState {
     pending:
@@ -2074,6 +2242,7 @@ mod tests {
     panic_on_cancel: std::sync::atomic::AtomicBool,
   }
 
+  #[cfg(feature = "napi-timer-host")]
   impl PendingRelayState for TestPendingRelayState {
     fn take_pending_relay(
       &self,
@@ -2137,6 +2306,7 @@ mod tests {
     }
   }
 
+  #[cfg(feature = "napi-timer-host")]
   fn test_pending_relay_guard(
     state: &std::sync::Arc<TestPendingRelayState>,
     id: crate::async_runtime::TimerId,
@@ -2174,6 +2344,7 @@ mod tests {
     )
   }
 
+  #[cfg(feature = "napi-timer-host")]
   struct BudgetBoundaryTimerWait {
     state: std::sync::Arc<TestPendingRelayState>,
     timer_id: crate::async_runtime::TimerId,
@@ -2181,6 +2352,7 @@ mod tests {
     registered: bool,
   }
 
+  #[cfg(feature = "napi-timer-host")]
   impl std::future::Future for BudgetBoundaryTimerWait {
     type Output = ();
 
@@ -2206,11 +2378,13 @@ mod tests {
     }
   }
 
+  #[cfg(feature = "napi-task-host")]
   #[test]
   fn current_thread_task_host_contract_version_is_stable() {
     assert_eq!(get_current_thread_task_host_contract_version(), 4);
   }
 
+  #[cfg(feature = "napi-task-host")]
   #[test]
   fn host_registration_reservations_are_exact_and_single_use() {
     let claimed = reserve_current_thread_host_registration().unwrap();
@@ -2233,6 +2407,46 @@ mod tests {
     );
   }
 
+  #[cfg(all(feature = "napi-timer-host-stub", not(feature = "napi-timer-host")))]
+  #[test]
+  fn timer_host_stub_tracks_liveness_without_installing_a_timer_driver() {
+    use super::{
+      is_current_thread_host_registration_active, record_timer_host_registration,
+      unregister_timer_host,
+    };
+
+    let reserved = reserve_current_thread_host_registration().unwrap();
+    assert!(
+      !is_current_thread_host_registration_active(reserved.high, reserved.low),
+      "an unclaimed reservation must not report active"
+    );
+
+    let id = claim_host_registration_id(reserved.high, reserved.low).unwrap();
+    record_timer_host_registration(id);
+    assert!(
+      is_current_thread_host_registration_active(reserved.high, reserved.low),
+      "a recorded stub timer-host registration must report active"
+    );
+    assert!(
+      !crate::async_runtime::has_live_timer_driver(),
+      "the stub timer host must not install a scheduler TimerDriver"
+    );
+
+    unregister_timer_host(reserved.high, reserved.low);
+    assert!(
+      !is_current_thread_host_registration_active(reserved.high, reserved.low),
+      "unregisterTimerHost must evict the recorded stub registration"
+    );
+
+    let unclaimed = reserve_current_thread_host_registration().unwrap();
+    unregister_timer_host(unclaimed.high, unclaimed.low);
+    assert!(
+      claim_host_registration_id(unclaimed.high, unclaimed.low).is_err(),
+      "unregisterTimerHost must release an unclaimed reservation"
+    );
+  }
+
+  #[cfg(feature = "napi-task-host")]
   fn native_task_host_with_raw_owner(raw: usize) -> NativeCurrentThreadTaskHostInner {
     NativeCurrentThreadTaskHostInner {
       threadsafe_function: std::sync::Mutex::new(Some(raw)),
@@ -2243,6 +2457,7 @@ mod tests {
     }
   }
 
+  #[cfg(feature = "napi-task-host")]
   #[test]
   fn native_task_host_competing_release_paths_retire_the_raw_owner_once() {
     let inner = std::sync::Arc::new(native_task_host_with_raw_owner(1));
@@ -2281,6 +2496,7 @@ mod tests {
     );
   }
 
+  #[cfg(feature = "napi-task-host")]
   #[test]
   fn native_task_host_closing_call_retires_owner_without_a_second_release() {
     let inner = native_task_host_with_raw_owner(1);
@@ -2312,6 +2528,7 @@ mod tests {
     );
   }
 
+  #[cfg(feature = "napi-task-host")]
   #[test]
   fn host_registration_capability_round_trips_without_precision_loss() {
     for id in [1, u64::from(u32::MAX), u64::from(u32::MAX) + 1, u64::MAX] {
@@ -2323,6 +2540,7 @@ mod tests {
     }
   }
 
+  #[cfg(feature = "napi-js-config")]
   #[test]
   fn binding_runtime_options_convert_to_a_partial_core_patch() {
     use crate::async_runtime::{RuntimeFlavor, RuntimeOptionsPatch};
@@ -2339,6 +2557,7 @@ mod tests {
     assert_eq!(patch.max_blocking_tasks, Some(7));
   }
 
+  #[cfg(feature = "napi-js-config")]
   #[test]
   fn binding_runtime_options_reject_unsafe_thread_counts() {
     use crate::async_runtime::RuntimeOptionsPatch;
@@ -2384,6 +2603,7 @@ mod tests {
     }
   }
 
+  #[cfg(feature = "napi-js-config")]
   #[test]
   fn runtime_metrics_preserve_safe_javascript_integer_range() {
     const BEYOND_U32_JS_NUMBER: f64 = 4_294_967_296.0;
@@ -2405,6 +2625,7 @@ mod tests {
     );
   }
 
+  #[cfg(feature = "napi-timer-host")]
   #[test]
   fn relay_ids_fail_closed_without_reuse_at_u32_exhaustion() {
     let allocator = RelayIdAllocator::default();
@@ -2444,6 +2665,7 @@ mod tests {
     );
   }
 
+  #[cfg(feature = "napi-timer-host")]
   #[test]
   fn host_timer_wake_and_drop_panics_are_contained_separately() {
     struct PanickingWakeAndDrop;
@@ -2468,6 +2690,7 @@ mod tests {
     wake_host_timer_safely(waker);
   }
 
+  #[cfg(feature = "napi-timer-host")]
   #[test]
   fn relay_drop_guard_cleans_only_its_matching_pending_relay() {
     struct CountingWake(std::sync::Arc<std::sync::atomic::AtomicUsize>);
@@ -2594,6 +2817,7 @@ mod tests {
     drop(disarmed_pending);
   }
 
+  #[cfg(feature = "napi-timer-host")]
   #[test]
   fn relay_callback_completion_precedes_delivery_and_closes_terminal_drop_window() {
     struct CountingWake(std::sync::Arc<std::sync::atomic::AtomicUsize>);
@@ -2637,6 +2861,7 @@ mod tests {
     assert_eq!(wakes.load(std::sync::atomic::Ordering::SeqCst), 1);
   }
 
+  #[cfg(feature = "napi-timer-host")]
   #[test]
   fn relay_callback_completion_finishes_cleanup_that_won_before_js_returned() {
     struct CountingWake(std::sync::Arc<std::sync::atomic::AtomicUsize>);
@@ -2680,6 +2905,7 @@ mod tests {
     assert_eq!(wakes.load(std::sync::atomic::Ordering::SeqCst), 1);
   }
 
+  #[cfg(feature = "napi-timer-host")]
   #[test]
   fn relay_terminal_cleanup_contains_cancel_panics_and_still_wakes() {
     struct CountingWake(std::sync::Arc<std::sync::atomic::AtomicUsize>);
@@ -2720,6 +2946,7 @@ mod tests {
     );
   }
 
+  #[cfg(feature = "napi-timer-host")]
   #[test]
   fn relay_native_cancellation_settles_before_fallible_host_cancellation() {
     use futures::FutureExt as _;
@@ -2756,6 +2983,7 @@ mod tests {
     );
   }
 
+  #[cfg(feature = "napi-timer-host")]
   #[test]
   fn relay_bulk_eviction_contains_each_cancel_panic_and_wakes_every_timer() {
     struct CountingWake(std::sync::Arc<std::sync::atomic::AtomicUsize>);
@@ -2802,6 +3030,7 @@ mod tests {
     );
   }
 
+  #[cfg(feature = "napi-timer-host")]
   #[test]
   fn failed_relay_retirement_cancels_only_after_the_schedule_callback_returns() {
     struct CountingWake(std::sync::Arc<std::sync::atomic::AtomicUsize>);
@@ -2854,6 +3083,7 @@ mod tests {
     );
   }
 
+  #[cfg(feature = "napi-timer-host")]
   #[test]
   fn host_timer_cleanup_contains_panicking_payload_drop_across_ffi() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_HOST_TIMER_PANIC_PAYLOAD_CHILD";
@@ -2900,6 +3130,7 @@ mod tests {
     );
   }
 
+  #[cfg(feature = "napi-timer-host")]
   #[test]
   fn host_timer_failure_recovery_precedes_and_survives_diagnostic_panics() {
     struct PanickingDiagnostic;
@@ -2922,6 +3153,7 @@ mod tests {
     );
   }
 
+  #[cfg(feature = "napi-timer-host")]
   #[test]
   fn host_timer_registry_drops_wakers_after_unlock() {
     struct LockCheckingDrop {
@@ -3001,6 +3233,7 @@ mod tests {
     assert!(evicted_waker_dropped.load(std::sync::atomic::Ordering::SeqCst));
   }
 
+  #[cfg(feature = "napi-timer-host")]
   #[test]
   fn host_timer_eviction_prevents_pending_registration_after_its_drain() {
     let pending = std::sync::Arc::new(std::sync::Mutex::new(rustc_hash::FxHashMap::default()));
@@ -3043,6 +3276,7 @@ mod tests {
     );
   }
 
+  #[cfg(feature = "napi-task-host")]
   #[test]
   fn cleanup_hook_registration_failure_rolls_back_host_registration() {
     let rollback_calls = std::sync::atomic::AtomicUsize::new(0);
@@ -3062,6 +3296,7 @@ mod tests {
     assert_eq!(rollback_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
   }
 
+  #[cfg(feature = "napi-timer-host")]
   #[test]
   fn host_driver_installation_allows_reentrant_eviction_before_publication() {
     let dead = std::sync::atomic::AtomicBool::new(false);
@@ -3194,7 +3429,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(all(feature = "napi-task-host", not(target_family = "wasm")))]
   #[test]
   fn native_task_host_null_env_retires_payload_and_recovers_exact_delivery() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_NATIVE_TASK_HOST_NULL_ENV_CHILD";
@@ -3324,7 +3559,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(all(feature = "napi-task-host", not(target_family = "wasm")))]
   #[test]
   fn native_task_host_callback_lease_covers_ack_payload_and_restart() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_NATIVE_TASK_HOST_CALLBACK_LEASE_CHILD";
@@ -3509,7 +3744,7 @@ mod tests {
     );
   }
 
-  #[cfg(not(target_family = "wasm"))]
+  #[cfg(all(feature = "napi-timer-host", not(target_family = "wasm")))]
   #[test]
   fn timer_relay_terminal_drop_at_host_turn_budget_settles_without_later_work() {
     const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_TIMER_RELAY_TERMINAL_DROP_CHILD";
@@ -3681,6 +3916,7 @@ mod tests {
   /// napi 3.10 error.rs), so message matching is forgeable by a live
   /// callback. The two authorities: the unforgeable `Closing` status, and
   /// the liveness probe.
+  #[cfg(feature = "napi-timer-host")]
   #[test]
   fn relay_eviction_is_decided_by_status_and_probe_never_by_message() {
     use napi::Status;
@@ -3729,6 +3965,7 @@ mod tests {
     );
   }
 
+  #[cfg(feature = "napi-timer-host")]
   #[test]
   fn cancellation_failures_share_the_three_strike_budget_without_cleanup_double_counting() {
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -3768,6 +4005,7 @@ mod tests {
     );
   }
 
+  #[cfg(feature = "napi-timer-host")]
   #[test]
   fn a_same_relay_success_cannot_erase_its_recorded_failure() {
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -3793,99 +4031,54 @@ mod tests {
     );
   }
 
+  #[cfg(not(target_family = "wasm"))]
   #[test]
-  fn resolve_thread_count_handles_env_inputs() {
-    const DEFAULT: usize = 8;
-    const MAXIMUM: usize = 16;
-    // A `0` typo must be treated as unset, never fed to a constructor that
-    // rejects 0 (`RuntimeOptions` validation), which would panic the host's
-    // module_init `expect`.
-    assert_eq!(
-      resolve_thread_count(Some("0".to_string()), DEFAULT, MAXIMUM),
-      DEFAULT
-    );
-    // Valid positive numbers pass through unchanged.
-    assert_eq!(
-      resolve_thread_count(Some("4".to_string()), DEFAULT, MAXIMUM),
-      4
-    );
-    // Valid but unsafe values clamp to the construction limit.
-    assert_eq!(
-      resolve_thread_count(Some("1000".to_string()), DEFAULT, MAXIMUM),
-      MAXIMUM
-    );
-    assert_eq!(
-      resolve_thread_count(Some(usize::MAX.to_string()), DEFAULT, MAXIMUM),
-      MAXIMUM
-    );
-    // Parse overflow is invalid input and falls back instead of wrapping.
-    assert_eq!(
-      resolve_thread_count(Some("18446744073709551616".to_string()), DEFAULT, MAXIMUM,),
-      DEFAULT
-    );
-    // Non-numeric values fall back gracefully (unchanged behaviour).
-    assert_eq!(
-      resolve_thread_count(Some("abc".to_string()), DEFAULT, MAXIMUM),
-      DEFAULT
-    );
-    // Unset falls back to the default.
-    assert_eq!(resolve_thread_count(None, DEFAULT, MAXIMUM), DEFAULT);
-    // Host-derived defaults are subject to the same production ceiling.
-    assert_eq!(resolve_thread_count(None, 32, MAXIMUM), MAXIMUM);
-  }
+  fn install_exact_ignores_drain_linger_env_while_install_applies_it() {
+    const CHILD_ENV: &str = "NAPI_RUNTIME_TEST_INSTALL_EXACT_MODE";
 
-  #[test]
-  #[should_panic(expected = "the default thread count must be positive")]
-  fn resolve_thread_count_rejects_an_invalid_default() {
-    let _ = resolve_thread_count(None, 0, 1);
-  }
+    if let Some(mode) = std::env::var_os(CHILD_ENV) {
+      use std::time::Duration;
 
-  #[test]
-  fn resolve_drain_linger_handles_env_inputs() {
-    use std::time::Duration;
+      use crate::async_runtime::{RuntimeOptions, configured_options};
 
-    use crate::async_runtime::{DEFAULT_DRAIN_LINGER_MICROS, MAX_DRAIN_LINGER_MICROS};
+      let options = RuntimeOptions {
+        drain_linger: Duration::from_micros(321),
+        ..RuntimeOptions::default()
+      };
+      if mode == "exact" {
+        super::install_exact(options).expect("install_exact must configure the scheduler");
+        assert_eq!(
+          configured_options().drain_linger,
+          Duration::from_micros(321),
+          "install_exact must not consult DRAIN_LINGER_ENV"
+        );
+      } else {
+        super::install(options).expect("install must configure the scheduler");
+        assert_eq!(
+          configured_options().drain_linger,
+          Duration::from_micros(777),
+          "install must apply DRAIN_LINGER_ENV when present"
+        );
+      }
+      return;
+    }
 
-    use super::resolve_drain_linger;
-
-    let fallback = Duration::from_micros(DEFAULT_DRAIN_LINGER_MICROS);
-    let ceiling = Duration::from_micros(MAX_DRAIN_LINGER_MICROS);
-    // Valid values pass through unchanged.
-    assert_eq!(
-      resolve_drain_linger(Some("250".to_string()), fallback),
-      Duration::from_micros(250)
-    );
-    // `0` disables lingering (it is a VALUE here, unlike thread counts).
-    assert_eq!(
-      resolve_drain_linger(Some("0".to_string()), fallback),
-      Duration::ZERO
-    );
-    // u64::MAX -- the exact value that used to wedge the suite through the
-    // removed first-drainer OnceLock -- clamps to the ceiling.
-    assert_eq!(
-      resolve_drain_linger(Some(u64::MAX.to_string()), fallback),
-      ceiling
-    );
-    // Parse overflow is invalid input and keeps the host-provided field.
-    assert_eq!(
-      resolve_drain_linger(Some("18446744073709551616".to_string()), fallback),
-      fallback
-    );
-    // Non-numeric and unset keep the host-provided field.
-    assert_eq!(
-      resolve_drain_linger(Some("abc".to_string()), fallback),
-      fallback
-    );
-    assert_eq!(resolve_drain_linger(None, fallback), fallback);
-    // Whitespace is tolerated, matching the removed in-scheduler parse.
-    assert_eq!(
-      resolve_drain_linger(Some(" 750 ".to_string()), fallback),
-      Duration::from_micros(750)
-    );
-    // An out-of-range host fallback is bounded too.
-    assert_eq!(
-      resolve_drain_linger(None, Duration::from_micros(u64::MAX)),
-      ceiling
-    );
+    for mode in ["exact", "env"] {
+      let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .arg("--exact")
+        .arg("adapter::tests::install_exact_ignores_drain_linger_env_while_install_applies_it")
+        .arg("--nocapture")
+        .env(CHILD_ENV, mode)
+        .env(crate::async_runtime::DRAIN_LINGER_ENV, "777")
+        .output()
+        .expect("the install_exact subprocess must start");
+      assert!(
+        output.status.success(),
+        "install mode `{mode}` failed; status={:?}\nstdout={}\nstderr={}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+      );
+    }
   }
 }

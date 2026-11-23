@@ -71,6 +71,11 @@ export abstract class BaseBuildCommand extends Command {
       'Whether to disable the generation JS binding file. Only works with `--platform` flag.',
   })
 
+  binaryOnly?: boolean = Option.Boolean('--binary-only', {
+    description:
+      'Only emit compiled binary artifacts (`.node`, `.wasm`, `.debug.wasm`) and skip generating or modifying JS, TypeScript declaration, and WASI loader files',
+  })
+
   dts?: string = Option.String('--dts', {
     description:
       'Path and filename of generated type def file. Relative to `--output-dir`',
@@ -186,6 +191,7 @@ export abstract class BaseBuildCommand extends Command {
       runtimeStringEnum: this.runtimeStringEnum,
       jsBinding: this.jsBinding,
       noJsBinding: this.noJsBinding,
+      binaryOnly: this.binaryOnly,
       dts: this.dts,
       dtsHeader: this.dtsHeader,
       noDtsHeader: this.noDtsHeader,
@@ -267,6 +273,10 @@ export interface BuildOptions {
    * Whether to disable the generation JS binding file. Only works with `--platform` flag.
    */
   noJsBinding?: boolean
+  /**
+   * Only emit compiled binary artifacts (`.node`, `.wasm`, `.debug.wasm`) and skip generating or modifying JS, TypeScript declaration, and WASI loader files
+   */
+  binaryOnly?: boolean
   /**
    * Path and filename of generated type def file. Relative to `--output-dir`
    */

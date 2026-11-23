@@ -9,17 +9,33 @@ addon's `AsyncRuntime` backend (napi's `async-runtime` SPI).
 - **Scheduler** (always compiled, napi-free). Exposed at the crate root:
   `spawn`, `try_spawn`, `spawn_detached`, `spawn_blocking`, `block_on`,
   `sleep_until`, `configure`/`configure_partial`/`configured_options`,
-  `start`/`shutdown`, metrics (`metrics`/`reset_metrics`), and the host driver
-  SPIs (`CurrentThreadTaskDriver`, `TimerDriver`).
-- **napi adapter** (cargo feature `napi`, on by default). `install(options)`
-  configures the scheduler and calls `register_async_runtime`; the
-  JavaScript-facing host protocol is exported under stable names
-  (`reserveCurrentThreadHostRegistration`, `registerCurrentThreadTaskHost`,
-  `registerTimerHost`, `unregisterCurrentThreadTaskHost`,
-  `unregisterTimerHost`, `isCurrentThreadHostRegistrationActive`,
-  `getCurrentThreadTaskHostContractVersion`, `configureAsyncRuntime`,
-  `getAsyncRuntimeConfig`, `getAsyncRuntimeMetrics`,
-  `resetAsyncRuntimeMetrics`).
+  `start`/`shutdown`, metrics (`metrics`/`reset_metrics`), config parsing
+  helpers (`parse_thread_count`, `resolve_thread_count`,
+  `resolve_drain_linger`), and the host driver SPIs (`CurrentThreadTaskDriver`,
+  `TimerDriver`).
+- **napi adapter** (cargo feature `napi`, on by default). Composed from
+  granular features so addons can opt into only the JS surface they ship:
+  - `napi-backend`: `SharedAsyncRuntime` (`AsyncRuntime` SPI backend),
+    `BindingRuntimeFlavor`, `install(options)` (resolves
+    `NAPI_ASYNC_RUNTIME_DRAIN_LINGER_US`), and `install_exact(options)` (no
+    adapter-side env reads).
+  - `napi-task-host` (implies `napi-backend`): `BindingHostRegistration`,
+    `NativeCurrentThreadTaskHost`, and the task-host exports
+    (`reserveCurrentThreadHostRegistration`, `registerCurrentThreadTaskHost`,
+    `unregisterCurrentThreadTaskHost`,
+    `getCurrentThreadTaskHostContractVersion`,
+    `isCurrentThreadHostRegistrationActive`).
+  - `napi-timer-host` (implies `napi-task-host`): full JS timer relay
+    (`registerTimerHost`, `unregisterTimerHost`).
+  - `napi-timer-host-stub` (implies `napi-task-host`): record-only
+    `registerTimerHost` / `unregisterTimerHost` stub satisfying contract
+    version 4 without installing a `TimerDriver`; automatically yields to
+    `napi-timer-host` when both features are unified (`--all-features`).
+  - `napi-js-config` (implies `napi-backend`): JS config and metrics exports
+    (`configureAsyncRuntime`, `getAsyncRuntimeConfig`,
+    `getAsyncRuntimeMetrics`, `resetAsyncRuntimeMetrics`).
+  - `napi` (default): enables `napi-backend`, `napi-task-host`,
+    `napi-timer-host`, and `napi-js-config`.
 
 ## Usage
 
