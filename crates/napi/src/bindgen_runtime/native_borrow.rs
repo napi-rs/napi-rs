@@ -1,5 +1,5 @@
 use std::{
-  cell::RefCell,
+  cell::{Cell, RefCell},
   collections::HashMap,
   ptr,
   sync::{Arc, LazyLock, Mutex, MutexGuard},
@@ -25,11 +25,69 @@ struct NativeBorrowState {
 static NATIVE_BORROWS: LazyLock<Mutex<HashMap<usize, NativeBorrowState>>> =
   LazyLock::new(|| Mutex::new(HashMap::new()));
 
+type SharedStorage = Arc<Mutex<NativeBorrowStorage>>;
+
+enum ScopeEntry {
+  Barrier,
+  Collecting(Option<SharedStorage>),
+}
+
 thread_local! {
-  static NATIVE_BORROW_SCOPES: RefCell<Vec<*const Mutex<NativeBorrowStorage>>> =
+  static NATIVE_BORROW_SCOPES: RefCell<Vec<ScopeEntry>> = const { RefCell::new(Vec::new()) };
+  static DEFERRED_NATIVE_BORROW_SCOPES: RefCell<Vec<DeferredNativeBorrowScope>> =
     const { RefCell::new(Vec::new()) };
-  static DEFERRED_NATIVE_BORROW_SCOPES: RefCell<Vec<FinishedNativeBorrowScope>> =
+  /// Next id for [`DeferredNativeBorrowScope::id`]. A deferred scope that registered no
+  /// borrow owns no storage, so its storage pointer cannot identify it.
+  static DEFERRED_NATIVE_BORROW_NEXT_ID: Cell<u64> = const { Cell::new(0) };
+  static DEFERRED_NATIVE_BORROW_FLOOR: Cell<usize> = const { Cell::new(0) };
+  static NATIVE_BORROW_STORAGE_POOL: RefCell<Vec<SharedStorage>> =
     const { RefCell::new(Vec::new()) };
+}
+
+const NATIVE_BORROW_STORAGE_POOL_SIZE: usize = 8;
+/// A pooled storage keeps its `Vec` capacity for the life of the thread, so one that grew
+/// past this many entries (a large `&T` batch) is dropped instead of pooled.
+const NATIVE_BORROW_STORAGE_POOL_MAX_CAPACITY: usize = 64;
+
+fn new_storage() -> SharedStorage {
+  NATIVE_BORROW_STORAGE_POOL
+    .try_with(|pool| pool.borrow_mut().pop())
+    .ok()
+    .flatten()
+    .unwrap_or_default()
+}
+
+fn recycle_storage(mut storage: SharedStorage) {
+  let Some(inner) = Arc::get_mut(&mut storage) else {
+    return;
+  };
+  let inner = inner
+    .get_mut()
+    .unwrap_or_else(std::sync::PoisonError::into_inner);
+  if !inner.guards.is_empty() || !inner.roots.is_empty() || inner.open_leases != 0 {
+    return;
+  }
+  if inner.guards.capacity() > NATIVE_BORROW_STORAGE_POOL_MAX_CAPACITY
+    || inner.borrowed_values.capacity() > NATIVE_BORROW_STORAGE_POOL_MAX_CAPACITY
+    || inner.roots.capacity() > NATIVE_BORROW_STORAGE_POOL_MAX_CAPACITY
+  {
+    return;
+  }
+  inner.borrowed_values.clear();
+  inner.root_values = false;
+  inner.owner_thread = None;
+  inner.closed = false;
+  #[cfg(all(feature = "napi4", not(feature = "noop")))]
+  {
+    inner.custom_gc = None;
+  }
+  let _ = NATIVE_BORROW_STORAGE_POOL.try_with(|pool| {
+    if let Ok(mut pool) = pool.try_borrow_mut() {
+      if pool.len() < NATIVE_BORROW_STORAGE_POOL_SIZE {
+        pool.push(storage);
+      }
+    }
+  });
 }
 
 #[derive(Default)]
@@ -299,20 +357,20 @@ fn release_lease(storage: &Mutex<NativeBorrowStorage>, settle_env: Option<sys::n
 /// conversion (a `Function`/`Promise`/container conversion that ran JavaScript).
 #[doc(hidden)]
 pub struct NativeBorrowBarrier {
-  // The outer callback's deferred scopes, parked while this frame runs. Claims inside
-  // the barrier observe only deferred scopes the reentrant frame itself pushed.
-  saved_deferred: Vec<FinishedNativeBorrowScope>,
+  // The outer callback's deferred scopes stay below the floor while this frame runs.
+  // Claims inside the barrier observe only deferred scopes the reentrant frame itself
+  // pushed.
+  saved_floor: usize,
   _not_send: std::marker::PhantomData<std::rc::Rc<()>>,
 }
 
 impl NativeBorrowBarrier {
   #[doc(hidden)]
   pub fn new() -> Self {
-    NATIVE_BORROW_SCOPES.with(|scopes| scopes.borrow_mut().push(ptr::null()));
-    let saved_deferred =
-      DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| std::mem::take(&mut *scopes.borrow_mut()));
+    NATIVE_BORROW_SCOPES.with(|scopes| scopes.borrow_mut().push(ScopeEntry::Barrier));
+    let len = DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| scopes.borrow().len());
     Self {
-      saved_deferred,
+      saved_floor: DEFERRED_NATIVE_BORROW_FLOOR.with(|floor| floor.replace(len)),
       _not_send: std::marker::PhantomData,
     }
   }
@@ -326,19 +384,24 @@ impl Drop for NativeBorrowBarrier {
         .pop()
         .expect("native borrow barriers must be dropped in stack order");
       assert!(
-        barrier.is_null(),
+        matches!(barrier, ScopeEntry::Barrier),
         "native borrow barriers must not overlap conversion scopes"
       );
     });
-    DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| {
+    let floor = DEFERRED_NATIVE_BORROW_FLOOR.with(|floor| floor.replace(self.saved_floor));
+    // A well-formed reentrant frame pops every scope it deferred through its own
+    // reclaim guards. Anything left belongs to a frame that unwound past them;
+    // dropping it takes the teardown-safe abandon path rather than leaking it back
+    // into the restored outer stack.
+    let leftover = DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| {
       let mut scopes = scopes.borrow_mut();
-      // A well-formed reentrant frame pops every scope it deferred through its own
-      // reclaim guards. Anything left belongs to a frame that unwound past them;
-      // dropping it takes the teardown-safe abandon path rather than leaking it back
-      // into the restored outer stack.
-      scopes.clear();
-      *scopes = std::mem::take(&mut self.saved_deferred);
+      if scopes.len() > floor {
+        scopes.split_off(floor)
+      } else {
+        Vec::new()
+      }
     });
+    drop(leftover);
   }
 }
 
@@ -346,19 +409,20 @@ impl Drop for NativeBorrowBarrier {
 ///
 /// The scope is collecting — and `!Send` — until [`NativeBorrowScope::finish`] pops it
 /// from this thread's conversion stack. Collecting ties the scope to the creating
-/// thread: the stack entry is a raw pointer into that thread's TLS, so moving a
-/// collecting scope to another thread would let `finish`/`Drop` pop a foreign stack
-/// (panic) and leave the source thread's TLS pointing at freed storage for the next
-/// `register_native_borrow` to dereference. Only the finished form,
-/// [`FinishedNativeBorrowScope`], is allowed to travel.
+/// thread: its storage is owned by the `ScopeEntry::Collecting` entry at `depth` in that
+/// thread's TLS stack, and `finish` takes it back from there. `!Send` is what stops
+/// `finish`/`Drop` from running on another thread, where they would pop that thread's
+/// stack (a panic, or another scope's entry when the depths happen to match). Only the
+/// finished form, [`FinishedNativeBorrowScope`], is allowed to travel.
 #[doc(hidden)]
 pub struct NativeBorrowScope {
-  // `Arc` because the TLS conversion stack stores the storage address and deferred
-  // scopes share it with every lease claimed during conversion: the storage must
-  // outlive the callback frame and stay put whichever handle moves. The `Mutex`
-  // serializes the lease counter against scope close and release-vs-release across
-  // threads; it is never held across a napi call that can reenter this storage.
-  storage: Arc<Mutex<NativeBorrowStorage>>,
+  // `Arc` because deferred scopes share the storage with every lease claimed during
+  // conversion: the storage must outlive the callback frame and stay put whichever
+  // handle moves. The `Mutex` serializes the lease counter against scope close and
+  // release-vs-release across threads; it is never held across a napi call that can
+  // reenter this storage.
+  storage: Option<SharedStorage>,
+  depth: usize,
   collecting: bool,
   // `!Send` while collecting; `finish_sendable` is the only way to move the scope's
   // storage into a thread-crossing handle.
@@ -389,17 +453,31 @@ impl NativeBorrowScope {
   }
 
   unsafe fn new_inner(root_values: bool) -> Self {
-    let storage = Arc::new(Mutex::new(NativeBorrowStorage {
-      root_values,
-      owner_thread: root_values.then(|| thread::current().id()),
-      ..Default::default()
-    }));
-    NATIVE_BORROW_SCOPES.with(|scopes| scopes.borrow_mut().push(Arc::as_ptr(&storage)));
+    let storage = root_values.then(|| {
+      Arc::new(Mutex::new(NativeBorrowStorage {
+        root_values,
+        owner_thread: Some(thread::current().id()),
+        ..Default::default()
+      }))
+    });
+    let depth = NATIVE_BORROW_SCOPES.with(|scopes| {
+      let mut scopes = scopes.borrow_mut();
+      scopes.push(ScopeEntry::Collecting(storage));
+      scopes.len() - 1
+    });
     Self {
-      storage,
+      storage: None,
+      depth,
       collecting: true,
       _not_send: std::marker::PhantomData,
     }
+  }
+
+  fn collecting_storage(&self) -> SharedStorage {
+    NATIVE_BORROW_SCOPES.with(|scopes| match scopes.borrow_mut().get_mut(self.depth) {
+      Some(ScopeEntry::Collecting(storage)) => storage.get_or_insert_with(new_storage).clone(),
+      _ => panic!("native borrow scope is not on the conversion stack"),
+    })
   }
 
   /// Roots `value` in this async scope, with no borrow guard.
@@ -425,8 +503,15 @@ impl NativeBorrowScope {
         "referenced ptr is null".to_owned(),
       ));
     }
-    let mut storage = lock_storage(&self.storage);
-    if !self.collecting || !storage.root_values {
+    if !self.collecting {
+      return Err(Error::new(
+        Status::GenericFailure,
+        "Only a collecting async native borrow scope can root a value".to_owned(),
+      ));
+    }
+    let shared = self.collecting_storage();
+    let mut storage = lock_storage(&shared);
+    if !storage.root_values {
       return Err(Error::new(
         Status::GenericFailure,
         "Only a collecting async native borrow scope can root a value".to_owned(),
@@ -451,14 +536,21 @@ impl NativeBorrowScope {
     if !self.collecting {
       return;
     }
-    let expected = Arc::as_ptr(&self.storage);
-    NATIVE_BORROW_SCOPES.with(|scopes| {
-      let actual = scopes
-        .borrow_mut()
+    let entry = NATIVE_BORROW_SCOPES.with(|scopes| {
+      let mut scopes = scopes.borrow_mut();
+      assert_eq!(
+        scopes.len(),
+        self.depth + 1,
+        "native borrow scopes must be finished in stack order"
+      );
+      scopes
         .pop()
-        .expect("native borrow scopes must be finished in stack order");
-      assert_eq!(actual, expected, "native borrow scopes must not overlap");
+        .expect("native borrow scopes must be finished in stack order")
     });
+    let ScopeEntry::Collecting(storage) = entry else {
+      panic!("native borrow scopes must not overlap");
+    };
+    self.storage = storage;
     self.collecting = false;
   }
 
@@ -473,7 +565,7 @@ impl NativeBorrowScope {
     this.finish();
     // Move the `Arc` out wholesale — a clone + forgotten original would strand one
     // strong reference forever.
-    let storage = unsafe { ptr::read(&this.storage) };
+    let storage = this.storage.take();
     FinishedNativeBorrowScope { storage }
   }
 
@@ -486,7 +578,9 @@ impl NativeBorrowScope {
   #[doc(hidden)]
   pub fn release(mut self, env: sys::napi_env) {
     self.finish();
-    close_scope(&self.storage, Some(env));
+    if let Some(storage) = &self.storage {
+      close_scope(storage, Some(env));
+    }
     // The drop below runs `close_scope` again; it is idempotent (`closed` is already
     // set and the storage is already drained).
   }
@@ -500,7 +594,13 @@ impl NativeBorrowScope {
 /// rather than unref-ing through a possibly-dead env from a foreign thread.
 #[doc(hidden)]
 pub struct FinishedNativeBorrowScope {
-  storage: Arc<Mutex<NativeBorrowStorage>>,
+  storage: Option<SharedStorage>,
+}
+
+/// A deferred scope and the id its reclaim guard pops it by.
+struct DeferredNativeBorrowScope {
+  id: u64,
+  scope: FinishedNativeBorrowScope,
 }
 
 impl FinishedNativeBorrowScope {
@@ -509,7 +609,9 @@ impl FinishedNativeBorrowScope {
   /// performs the actual cleanup.
   #[doc(hidden)]
   pub fn release(self, env: sys::napi_env) {
-    close_scope(&self.storage, Some(env));
+    if let Some(storage) = &self.storage {
+      close_scope(storage, Some(env));
+    }
     // The drop below closes again; `closed` is already set, so it is a no-op.
   }
 
@@ -524,13 +626,18 @@ impl FinishedNativeBorrowScope {
   /// runtime worker thread. Unref-ing roots requires the owner env on its own thread,
   /// so off-thread the only options are the custom-GC delegate or a leak.
   pub(crate) fn abandon(self) {
-    close_scope(&self.storage, None);
+    if let Some(storage) = &self.storage {
+      close_scope(storage, None);
+    }
   }
 }
 
 impl Drop for FinishedNativeBorrowScope {
   fn drop(&mut self) {
-    close_scope(&self.storage, None);
+    if let Some(storage) = self.storage.take() {
+      close_scope(&storage, None);
+      recycle_storage(storage);
+    }
   }
 }
 
@@ -542,12 +649,14 @@ impl Drop for NativeBorrowScope {
       // live and roots unref+delete directly. `finish` first — it pops this thread's
       // conversion stack, and it panics if the scope is not the current top.
       self.finish();
-      close_scope_in_frame(&self.storage);
-    } else {
+      if let Some(storage) = &self.storage {
+        close_scope_in_frame(storage);
+      }
+    } else if let Some(storage) = &self.storage {
       // Finished without being deferred or wrapped: no env is in hand, so take the
       // delegate-or-leak path. Generated glue always routes finished scopes through
       // `defer_native_borrow_scope`/`NativeBorrowScopeRelease` first.
-      close_scope(&self.storage, None);
+      close_scope(storage, None);
     }
   }
 }
@@ -601,7 +710,7 @@ impl Drop for NativeBorrowLease {
 /// releases in place; with leases, the last one out performs the release.
 #[doc(hidden)]
 pub struct DeferredNativeBorrowScopeGuard {
-  storage: *const Mutex<NativeBorrowStorage>,
+  id: u64,
   env: sys::napi_env,
 }
 
@@ -629,9 +738,17 @@ pub fn defer_native_borrow_scope(
   env: sys::napi_env,
 ) -> DeferredNativeBorrowScopeGuard {
   let scope = scope.finish_sendable();
-  let storage = Arc::as_ptr(&scope.storage);
-  DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| scopes.borrow_mut().push(scope));
-  DeferredNativeBorrowScopeGuard { storage, env }
+  let id = DEFERRED_NATIVE_BORROW_NEXT_ID.with(|next| {
+    let id = next.get();
+    next.set(id.wrapping_add(1));
+    id
+  });
+  DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| {
+    scopes
+      .borrow_mut()
+      .push(DeferredNativeBorrowScope { id, scope })
+  });
+  DeferredNativeBorrowScopeGuard { id, env }
 }
 
 /// Claims a lease on the most recently deferred borrow scope, if any.
@@ -645,8 +762,21 @@ pub fn defer_native_borrow_scope(
 /// the last lease released performs the actual cleanup. A conversion with no deferred
 /// scope (the task came from `Env::spawn`, `spawn_future`, user code) yields `None`.
 pub(crate) fn claim_deferred_native_borrow_lease() -> Result<Option<NativeBorrowLease>> {
-  let storage = DEFERRED_NATIVE_BORROW_SCOPES
-    .with(|scopes| scopes.borrow().last().map(|scope| scope.storage.clone()));
+  let floor = DEFERRED_NATIVE_BORROW_FLOOR.with(Cell::get);
+  let storage = DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| {
+    let mut scopes = scopes.borrow_mut();
+    if scopes.len() > floor {
+      scopes.last_mut().map(|deferred| {
+        deferred
+          .scope
+          .storage
+          .get_or_insert_with(new_storage)
+          .clone()
+      })
+    } else {
+      None
+    }
+  });
   match storage {
     Some(storage) => {
       {
@@ -668,11 +798,10 @@ impl Drop for DeferredNativeBorrowScopeGuard {
     // finalizers — re-entrant JavaScript that could reach this TLS again.
     let scope = DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| {
       let mut scopes = scopes.borrow_mut();
-      if scopes
-        .last()
-        .is_some_and(|scope| Arc::as_ptr(&scope.storage) == self.storage)
-      {
-        scopes.pop()
+      // Only this guard's own scope: a barrier may have dropped it already, and a later
+      // scope can sit at the same depth.
+      if scopes.last().is_some_and(|deferred| deferred.id == self.id) {
+        scopes.pop().map(|deferred| deferred.scope)
       } else {
         None
       }
@@ -808,7 +937,7 @@ impl Drop for NativeBorrowGuard {
 pub fn register_native_borrow<T>(value: *mut T, mutable: bool) -> Result<()> {
   let scope = current_native_borrow_scope()?;
   let guard = NativeBorrowGuard::acquire(value, native_borrow_kind(mutable))?;
-  lock_storage(unsafe { &*scope }).guards.push(guard);
+  lock_storage(&scope).guards.push(guard);
   Ok(())
 }
 
@@ -852,24 +981,22 @@ pub(crate) unsafe fn register_legacy_native_borrow_with_value<T>(
   value: *mut T,
   mutable: bool,
 ) -> Result<()> {
-  match current_native_borrow_scope_entry() {
-    None => Ok(()),
-    Some(scope) if scope.is_null() => Err(missing_native_borrow_scope_error()),
-    Some(scope) => unsafe {
-      register_native_borrow_with_value_in_scope(scope, env, napi_val, value, mutable)
-    },
+  if current_native_borrow_scope_entry().is_none() {
+    return Ok(());
   }
+  let scope = current_native_borrow_scope()?;
+  unsafe { register_native_borrow_with_value_in_scope(scope, env, napi_val, value, mutable) }
 }
 
 unsafe fn register_native_borrow_with_value_in_scope<T>(
-  scope: *const Mutex<NativeBorrowStorage>,
+  scope: SharedStorage,
   env: sys::napi_env,
   napi_val: sys::napi_value,
   value: *mut T,
   mutable: bool,
 ) -> Result<()> {
   let guard = NativeBorrowGuard::acquire(value, native_borrow_kind(mutable))?;
-  let mut storage = lock_storage(unsafe { &*scope });
+  let mut storage = lock_storage(&scope);
   if storage.root_values {
     // Async callbacks root eagerly: their scope leaves this thread inside the generated
     // future's finalize closure before any claim could upgrade it.
@@ -902,14 +1029,15 @@ unsafe fn register_native_borrow_with_value_in_scope<T>(
   Ok(())
 }
 
-fn current_native_borrow_scope() -> Result<*const Mutex<NativeBorrowStorage>> {
-  current_native_borrow_scope_entry()
-    .filter(|scope| !scope.is_null())
-    .ok_or_else(missing_native_borrow_scope_error)
+fn current_native_borrow_scope() -> Result<SharedStorage> {
+  NATIVE_BORROW_SCOPES.with(|scopes| match scopes.borrow_mut().last_mut() {
+    Some(ScopeEntry::Collecting(storage)) => Ok(storage.get_or_insert_with(new_storage).clone()),
+    _ => Err(missing_native_borrow_scope_error()),
+  })
 }
 
-fn current_native_borrow_scope_entry() -> Option<*const Mutex<NativeBorrowStorage>> {
-  NATIVE_BORROW_SCOPES.with(|scopes| scopes.borrow().last().copied())
+fn current_native_borrow_scope_entry() -> Option<()> {
+  NATIVE_BORROW_SCOPES.with(|scopes| scopes.borrow().last().map(|_| ()))
 }
 
 fn missing_native_borrow_scope_error() -> Error {
@@ -1142,7 +1270,7 @@ mod tests {
     // ref is never dereferenced — with no captured custom-GC handle the delegate can
     // only leak it, and that must make no napi calls at all.
     {
-      let mut storage = lock_storage(&scope.storage);
+      let mut storage = lock_storage(scope.storage.as_ref().unwrap());
       storage.roots.push(NativeBorrowRoot {
         env: ptr::null_mut(),
         reference: ptr::null_mut(),
@@ -1257,7 +1385,7 @@ mod tests {
     // Simulate a claimed scope: a JavaScript root owned by this thread. The fake ref is
     // never dereferenced — abandonment must not call napi at all.
     {
-      let mut storage = lock_storage(&scope.storage);
+      let mut storage = lock_storage(scope.storage.as_ref().unwrap());
       storage.roots.push(NativeBorrowRoot {
         env: ptr::null_mut(),
         reference: ptr::null_mut(),
@@ -1308,7 +1436,7 @@ mod tests {
     register_native_borrow(&mut value, false).unwrap();
     scope.finish();
     {
-      let mut storage = lock_storage(&scope.storage);
+      let mut storage = lock_storage(scope.storage.as_ref().unwrap());
       storage.roots.push(NativeBorrowRoot {
         env: ptr::null_mut(),
         reference: ptr::null_mut(),
@@ -1340,6 +1468,179 @@ mod tests {
     drop(guard);
     drop(lease);
     assert!(acquire_native_borrow(&mut value, true).is_ok());
+  }
+
+  /// Runs `f` on a new thread, so the thread-local storage pool starts empty.
+  fn on_fresh_thread(f: impl FnOnce() + Send + 'static) {
+    std::thread::spawn(f).join().expect("test thread panicked");
+  }
+
+  fn pooled_storages() -> Vec<SharedStorage> {
+    NATIVE_BORROW_STORAGE_POOL.with(|pool| pool.borrow().clone())
+  }
+
+  /// A recorded source value; synchronous scopes never dereference it.
+  const FAKE_NAPI_VALUE: sys::napi_value = 0x1000usize as sys::napi_value;
+
+  #[test]
+  fn storage_grown_by_a_large_batch_is_not_pooled() {
+    on_fresh_thread(|| {
+      let mut values = vec![0u32; NATIVE_BORROW_STORAGE_POOL_MAX_CAPACITY * 16];
+      let mut scope = unsafe { NativeBorrowScope::new() };
+      for value in &mut values {
+        unsafe {
+          register_legacy_native_borrow_with_value(ptr::null_mut(), FAKE_NAPI_VALUE, value, false)
+        }
+        .unwrap();
+      }
+      scope.finish();
+      drop(defer_native_borrow_scope(scope, ptr::null_mut()));
+      for value in &mut values {
+        assert!(acquire_native_borrow(value, true).is_ok());
+      }
+      for storage in pooled_storages() {
+        let storage = lock_storage(&storage);
+        assert!(storage.guards.capacity() <= NATIVE_BORROW_STORAGE_POOL_MAX_CAPACITY);
+        assert!(storage.borrowed_values.capacity() <= NATIVE_BORROW_STORAGE_POOL_MAX_CAPACITY);
+        assert!(storage.roots.capacity() <= NATIVE_BORROW_STORAGE_POOL_MAX_CAPACITY);
+      }
+
+      // A small scope is still pooled.
+      let mut value = 1u32;
+      let mut scope = unsafe { NativeBorrowScope::new() };
+      register_native_borrow(&mut value, false).unwrap();
+      scope.finish();
+      drop(defer_native_borrow_scope(scope, ptr::null_mut()));
+      assert_eq!(pooled_storages().len(), 1);
+    });
+  }
+
+  #[test]
+  fn pooled_storage_is_fully_reset() {
+    on_fresh_thread(|| {
+      let mut value = 1u32;
+      let mut scope = unsafe { NativeBorrowScope::new() };
+      unsafe {
+        register_legacy_native_borrow_with_value(
+          ptr::null_mut(),
+          FAKE_NAPI_VALUE,
+          &mut value,
+          false,
+        )
+      }
+      .unwrap();
+      scope.finish();
+      #[cfg(all(feature = "napi4", not(feature = "noop")))]
+      let handle = Arc::new(CustomGcHandle::new());
+      let storage_ptr = {
+        let shared = scope.storage.as_ref().unwrap();
+        let mut storage = lock_storage(shared);
+        assert_eq!(storage.guards.len(), 1);
+        assert_eq!(storage.borrowed_values.len(), 1);
+        // A fake root: the drop below hands it to `handle`, which has no tsfn and only
+        // queues it, or leaks it without a handle. It is never dereferenced.
+        storage.roots.push(NativeBorrowRoot {
+          env: ptr::null_mut(),
+          reference: ptr::null_mut(),
+        });
+        storage.root_values = true;
+        storage.owner_thread = Some(thread::current().id());
+        #[cfg(all(feature = "napi4", not(feature = "noop")))]
+        {
+          storage.custom_gc = Some(handle.clone());
+        }
+        Arc::as_ptr(shared)
+      };
+      drop(scope.finish_sendable());
+      assert!(acquire_native_borrow(&mut value, true).is_ok());
+
+      let pool = pooled_storages();
+      assert_eq!(pool.len(), 1);
+      assert!(ptr::eq(Arc::as_ptr(&pool[0]), storage_ptr));
+      {
+        let storage = lock_storage(&pool[0]);
+        assert!(storage.guards.is_empty());
+        assert!(storage.borrowed_values.is_empty());
+        assert!(storage.roots.is_empty());
+        assert!(!storage.root_values);
+        assert!(storage.owner_thread.is_none());
+        assert!(!storage.closed);
+        assert_eq!(storage.open_leases, 0);
+        #[cfg(all(feature = "napi4", not(feature = "noop")))]
+        assert!(storage.custom_gc.is_none());
+      }
+      drop(pool);
+      #[cfg(all(feature = "napi4", not(feature = "noop")))]
+      assert_eq!(Arc::strong_count(&handle), 1);
+      // The next scope reuses it.
+      assert!(ptr::eq(Arc::as_ptr(&new_storage()), storage_ptr));
+    });
+  }
+
+  #[test]
+  fn barrier_restores_the_floor_and_releases_a_forgotten_inner_scope() {
+    on_fresh_thread(|| {
+      let mut outer_value = 1u32;
+      let mut inner_value = 2u32;
+      let mut outer_scope = unsafe { NativeBorrowScope::new() };
+      register_native_borrow(&mut outer_value, false).unwrap();
+      outer_scope.finish();
+      let outer_guard = defer_native_borrow_scope(outer_scope, ptr::null_mut());
+
+      {
+        let _barrier = NativeBorrowBarrier::new();
+        let mut inner_scope = unsafe { NativeBorrowScope::new() };
+        register_native_borrow(&mut inner_value, false).unwrap();
+        inner_scope.finish();
+        // The reentrant frame unwinds past its reclaim guard.
+        std::mem::forget(defer_native_borrow_scope(inner_scope, ptr::null_mut()));
+        assert!(acquire_native_borrow(&mut inner_value, true).is_err());
+      }
+
+      assert_eq!(DEFERRED_NATIVE_BORROW_FLOOR.with(Cell::get), 0);
+      assert!(acquire_native_borrow(&mut inner_value, true).is_ok());
+      let outer_lease = claim_deferred_native_borrow_lease()
+        .unwrap()
+        .expect("outer scope must lease after the barrier drops");
+      drop(outer_guard);
+      drop(outer_lease);
+      assert!(acquire_native_borrow(&mut outer_value, true).is_ok());
+      assert!(claim_deferred_native_borrow_lease().unwrap().is_none());
+    });
+  }
+
+  #[test]
+  fn reclaim_guard_does_not_pop_a_later_scope_at_the_same_depth() {
+    on_fresh_thread(|| {
+      let mut first_value = 1u32;
+      let mut second_value = 2u32;
+      let first_guard = {
+        let _barrier = NativeBorrowBarrier::new();
+        let mut scope = unsafe { NativeBorrowScope::new() };
+        register_native_borrow(&mut first_value, false).unwrap();
+        scope.finish();
+        // The barrier drops before this guard and takes its scope with it.
+        defer_native_borrow_scope(scope, ptr::null_mut())
+      };
+      let mut scope = unsafe { NativeBorrowScope::new() };
+      register_native_borrow(&mut second_value, false).unwrap();
+      scope.finish();
+      let second_guard = defer_native_borrow_scope(scope, ptr::null_mut());
+
+      drop(first_guard);
+      // The second scope, now at the first one's depth, still holds its borrow.
+      assert!(acquire_native_borrow(&mut second_value, true).is_err());
+      assert_eq!(
+        DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| scopes.borrow().len()),
+        1
+      );
+      drop(second_guard);
+      assert!(acquire_native_borrow(&mut second_value, true).is_ok());
+      assert_eq!(
+        DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| scopes.borrow().len()),
+        0
+      );
+    });
   }
 
   #[test]

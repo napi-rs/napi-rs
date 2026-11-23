@@ -311,7 +311,7 @@ impl Drop for CustomGcHandle {
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
 impl CustomGcHandle {
-  fn new() -> Self {
+  pub(crate) fn new() -> Self {
     Self {
       tsfn: std::sync::atomic::AtomicPtr::new(ptr::null_mut()),
       phase: RwLock::new(CustomGcPhase::Open),
