@@ -1222,6 +1222,8 @@ export declare function createBigIntI64(): bigint
 
 export declare function createBufferSliceFromCopiedData(): Buffer
 
+export declare function createBufferSliceOfSize(kind: string, size: number): Buffer
+
 export declare function createClosureReadingExternal(): (arg: unknown) => number
 
 /**

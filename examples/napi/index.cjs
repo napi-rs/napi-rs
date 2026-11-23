@@ -1111,6 +1111,7 @@ module.exports.createArraybuffer = nativeBinding.createArraybuffer
 module.exports.createBigInt = nativeBinding.createBigInt
 module.exports.createBigIntI64 = nativeBinding.createBigIntI64
 module.exports.createBufferSliceFromCopiedData = nativeBinding.createBufferSliceFromCopiedData
+module.exports.createBufferSliceOfSize = nativeBinding.createBufferSliceOfSize
 module.exports.createClosureReadingExternal = nativeBinding.createClosureReadingExternal
 module.exports.createDeferredThenFail = nativeBinding.createDeferredThenFail
 module.exports.createDuplicateExternalRef = nativeBinding.createDuplicateExternalRef
