@@ -22,6 +22,7 @@ use std::ffi::c_void;
 #[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
 use std::{
   any::TypeId,
+  cell::RefCell,
   collections::HashMap,
   num::NonZeroU32,
   sync::{LazyLock, Mutex},
@@ -50,6 +51,55 @@ struct ClassRegistry {
 #[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
 static CLASS_REGISTRY: LazyLock<Mutex<ClassRegistry>> =
   LazyLock::new(|| Mutex::new(ClassRegistry::default()));
+
+#[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
+thread_local! {
+  static CLASS_REGISTRY_CACHE: RefCell<ClassRegistry> = RefCell::new(ClassRegistry::default());
+}
+
+#[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
+fn cached_class_id(type_id: TypeId) -> crate::Result<ClassId> {
+  if let Some(class_id) =
+    CLASS_REGISTRY_CACHE.with(|cache| cache.borrow().indices.get(&type_id).copied())
+  {
+    return Ok(Some(class_id));
+  }
+  let class_id = intern_class_id(&CLASS_REGISTRY, type_id, MAX_CLASS_IDS)?;
+  if let Some(id) = class_id {
+    // Best effort: the ID is already interned, so a failed reserve only skips caching.
+    CLASS_REGISTRY_CACHE.with(|cache| {
+      let mut cache = cache.borrow_mut();
+      if cache.indices.try_reserve(1).is_ok() {
+        cache.indices.insert(type_id, id);
+      }
+    });
+  }
+  Ok(class_id)
+}
+
+#[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
+fn cached_class_type_id(index: usize) -> Option<TypeId> {
+  CLASS_REGISTRY_CACHE.with(|cache| {
+    if let Some(type_id) = cache.borrow().type_ids.get(index) {
+      return Some(*type_id);
+    }
+    let mut cache = cache.borrow_mut();
+    let registry = CLASS_REGISTRY.lock().unwrap();
+    // The registry only appends, so the cache is a prefix of it: copy the new tail.
+    let cached = cache.type_ids.len();
+    if cache
+      .type_ids
+      .try_reserve(registry.type_ids.len() - cached)
+      .is_err()
+    {
+      return registry.type_ids.get(index).copied();
+    }
+    cache
+      .type_ids
+      .extend_from_slice(&registry.type_ids[cached..]);
+    cache.type_ids.get(index).copied()
+  })
+}
 
 #[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
 fn class_registry_full() -> crate::Error {
@@ -103,7 +153,7 @@ pub(crate) struct ClassId;
 #[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
 #[inline(always)]
 pub(crate) fn class_id_of<T: 'static>() -> crate::Result<ClassId> {
-  intern_class_id(&CLASS_REGISTRY, TypeId::of::<T>(), MAX_CLASS_IDS)
+  cached_class_id(TypeId::of::<T>())
 }
 
 #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
@@ -154,12 +204,23 @@ fn type_id_of<T: ?Sized>() -> TypeId {
 
 /// Check that `wrapped`, a `napi_unwrap` result, may be cast to `*mut T`.
 /// `wrapped` is only used as a map key and for address checks; it is never read.
-#[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
-#[inline]
+#[cfg(all(test, not(all(feature = "napi8", not(target_family = "wasm")))))]
 fn check_class_identity_with_registry<T>(
   registry: &Mutex<ClassRegistry>,
   wrapped: *mut c_void,
   class_name: fn() -> &'static str,
+) -> crate::Result<()> {
+  check_class_identity_with::<T>(wrapped, class_name, |index| {
+    registry.lock().unwrap().type_ids.get(index).copied()
+  })
+}
+
+#[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
+#[inline]
+fn check_class_identity_with<T>(
+  wrapped: *mut c_void,
+  class_name: fn() -> &'static str,
+  registered_type_id: impl FnOnce(usize) -> Option<TypeId>,
 ) -> crate::Result<()> {
   // No byte is read through a zero-sized `T`. Zero-sized instances can also
   // share one dangling key (older `napi-derive` output, or a zero-sized class
@@ -170,12 +231,8 @@ fn check_class_identity_with_registry<T>(
   let recorded = super::REFERENCE_MAP
     .with(|cell| cell.borrow_mut(|map| map.get(&wrapped).map(|entry| entry.class_id)));
   let is_t = match recorded {
-    Some(Some(class_id)) => registry
-      .lock()
-      .unwrap()
-      .type_ids
-      .get(class_id.get() as usize - 1)
-      .is_some_and(|registered| *registered == type_id_of::<T>()),
+    Some(Some(class_id)) => registered_type_id(class_id.get() as usize - 1)
+      .is_some_and(|registered| registered == type_id_of::<T>()),
     // Not wrapped by this copy's class glue (a second loaded copy of the addon,
     // `wrap_and_tag`, hand-written `napi_wrap`): accepted as before. A live `T`
     // is never in the null page or misaligned; such a pointer is the dangling
@@ -198,7 +255,7 @@ pub(crate) fn check_class_identity<T>(
   wrapped: *mut c_void,
   class_name: fn() -> &'static str,
 ) -> crate::Result<()> {
-  check_class_identity_with_registry::<T>(&CLASS_REGISTRY, wrapped, class_name)
+  check_class_identity_with::<T>(wrapped, class_name, cached_class_type_id)
 }
 
 /// No-op on napi8 native builds: the type tag check covers these sites.
@@ -225,8 +282,8 @@ mod tests {
   use std::{any::TypeId, ffi::c_void, sync::Mutex};
 
   use super::{
-    check_class_identity, check_class_identity_with_registry, class_id_of, intern_class_id,
-    short_type_name, ClassId, ClassRegistry,
+    cached_class_type_id, check_class_identity, check_class_identity_with_registry, class_id_of,
+    intern_class_id, short_type_name, ClassId, ClassRegistry, CLASS_REGISTRY, CLASS_REGISTRY_CACHE,
   };
   use crate::bindgen_runtime::{RefEntry, REFERENCE_MAP};
   use crate::Status;
@@ -317,6 +374,47 @@ mod tests {
     assert!(check_class_identity_with_registry::<ClassA>(&registry, wrapped, name).is_ok());
     assert!(check_class_identity_with_registry::<ClassB>(&registry, wrapped, name).is_err());
     forget(wrapped);
+  }
+
+  #[test]
+  fn thread_cache_resolves_classes_registered_after_it_was_filled() {
+    struct Early(#[allow(dead_code)] u64);
+    struct Late(#[allow(dead_code)] u64);
+    std::thread::spawn(|| {
+      let early = class_id_of::<Early>().unwrap().unwrap();
+      // Fills this thread's cache with the registry as it is now.
+      assert_eq!(
+        cached_class_type_id(early.get() as usize - 1),
+        Some(TypeId::of::<Early>())
+      );
+      // Registered by another thread, so this thread's cache misses it.
+      let late = std::thread::spawn(|| class_id_of::<Late>().unwrap().unwrap())
+        .join()
+        .unwrap();
+      assert_eq!(
+        cached_class_type_id(late.get() as usize - 1),
+        Some(TypeId::of::<Late>())
+      );
+      assert_eq!(
+        cached_class_type_id(early.get() as usize - 1),
+        Some(TypeId::of::<Early>())
+      );
+      let registry = CLASS_REGISTRY.lock().unwrap().type_ids.clone();
+      CLASS_REGISTRY_CACHE.with(|cache| {
+        let cache = cache.borrow();
+        assert_eq!(cache.type_ids[..], registry[..cache.type_ids.len()]);
+      });
+      assert_eq!(class_id_of::<Late>().unwrap(), Some(late));
+
+      let mut value = Late(1);
+      let wrapped: *mut c_void = (&mut value as *mut Late).cast();
+      record(wrapped, Some(late));
+      assert!(check_class_identity::<Late>(wrapped, name).is_ok());
+      assert!(check_class_identity::<Early>(wrapped, name).is_err());
+      forget(wrapped);
+    })
+    .join()
+    .unwrap();
   }
 
   #[test]
