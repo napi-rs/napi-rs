@@ -525,6 +525,17 @@ impl NapiStruct {
         #object_finalize_impl
       }
     };
+    let pin_disposable_instance = if class.disposable {
+      quote! {
+        napi::bindgen_prelude::pin_disposable_in_active_frame(
+          env.raw(),
+          instance_value,
+          wrapped_value.cast(),
+        )?;
+      }
+    } else {
+      quote! {}
+    };
     quote! {
       #[automatically_derived]
       #to_napi_value_impl {
@@ -533,10 +544,7 @@ impl NapiStruct {
           val: #name
         ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
           if let Some(ctor_ref) = napi::__private::get_class_constructor_in_env(env, #js_name_str) {
-            let mut wrapped_value = Box::into_raw(Box::new(val));
-            if wrapped_value as usize == 0x1 {
-              wrapped_value = Box::into_raw(Box::new(0u8)).cast();
-            }
+            let wrapped_value = napi::bindgen_prelude::alloc_class_value(val);
             let instance_value = napi::bindgen_prelude::new_instance::<#name>(env, wrapped_value.cast(), ctor_ref)?;
             #iterator_implementation
             #async_iterator_implementation
@@ -557,11 +565,9 @@ impl NapiStruct {
          {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor_in_env(env.raw(), #js_name_str) {
             unsafe {
-              let mut wrapped_value = Box::into_raw(Box::new(self));
-              if wrapped_value as usize == 0x1 {
-                wrapped_value = Box::into_raw(Box::new(0u8)).cast();
-              }
+              let wrapped_value = napi::bindgen_prelude::alloc_class_value(self);
               let instance_value = napi::bindgen_prelude::new_instance::<#name>(env.raw(), wrapped_value.cast(), ctor_ref)?;
+              #pin_disposable_instance
               Ok(napi::bindgen_prelude::ClassInstance::new(instance_value, env.raw(), wrapped_value))
             }
           } else {
@@ -574,10 +580,7 @@ impl NapiStruct {
         fn into_reference(self, env: napi::Env) -> napi::Result<napi::bindgen_prelude::Reference<Self>> {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor_in_env(env.raw(), #js_name_str) {
             unsafe {
-              let mut wrapped_value = Box::into_raw(Box::new(self));
-              if wrapped_value as usize == 0x1 {
-                wrapped_value = Box::into_raw(Box::new(0u8)).cast();
-              }
+              let wrapped_value = napi::bindgen_prelude::alloc_class_value(self);
               let instance_value = napi::bindgen_prelude::new_instance::<#name>(env.raw(), wrapped_value.cast(), ctor_ref)?;
               {
                 let env = env.raw();

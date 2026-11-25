@@ -6,7 +6,7 @@ use std::{
   },
 };
 
-use napi::{bindgen_prelude::*, Task};
+use napi::{bindgen_prelude::*, PropertyAttributes, Task};
 use tokio::sync::Notify;
 
 static DROP_COUNTS: LazyLock<Mutex<HashMap<u32, u32>>> =
@@ -15,7 +15,10 @@ static FINALIZE_COUNTS: LazyLock<Mutex<HashMap<u32, u32>>> =
   LazyLock::new(|| Mutex::new(HashMap::new()));
 static SHARED_VIEW_DROP_COUNTS: LazyLock<Mutex<HashMap<u32, u32>>> =
   LazyLock::new(|| Mutex::new(HashMap::new()));
+static SHARED_VIEW_DROP_OBSERVATIONS: LazyLock<Mutex<HashMap<u32, (u32, u32)>>> =
+  LazyLock::new(|| Mutex::new(HashMap::new()));
 static ZST_DROP_COUNT: AtomicU32 = AtomicU32::new(0);
+static ALIGNED_ZST_DROP_COUNT: AtomicU32 = AtomicU32::new(0);
 
 fn record_drop(id: u32) {
   let mut map = DROP_COUNTS.lock().unwrap();
@@ -27,9 +30,13 @@ fn record_finalize(id: u32) {
   *map.entry(id).or_insert(0) += 1;
 }
 
-fn record_shared_view_drop(id: u32) {
+fn record_shared_view_drop(id: u32, observed_value: u32, parent_drops_at_view_drop: u32) {
   let mut map = SHARED_VIEW_DROP_COUNTS.lock().unwrap();
   *map.entry(id).or_insert(0) += 1;
+  SHARED_VIEW_DROP_OBSERVATIONS
+    .lock()
+    .unwrap()
+    .insert(id, (observed_value, parent_drops_at_view_drop));
 }
 
 #[napi]
@@ -58,8 +65,22 @@ pub fn get_disposable_shared_view_drop_count(id: u32) -> u32 {
 }
 
 #[napi]
+pub fn get_disposable_shared_view_drop_observation(id: u32) -> Option<Vec<u32>> {
+  SHARED_VIEW_DROP_OBSERVATIONS
+    .lock()
+    .unwrap()
+    .get(&id)
+    .map(|&(val, parent_drops)| vec![val, parent_drops])
+}
+
+#[napi]
 pub fn get_disposable_zst_drop_count() -> u32 {
   ZST_DROP_COUNT.load(Ordering::SeqCst)
+}
+
+#[napi]
+pub fn get_disposable_aligned_zst_drop_count() -> u32 {
+  ALIGNED_ZST_DROP_COUNT.load(Ordering::SeqCst)
 }
 
 // Async gate backed by `tokio::sync::Notify` so `async fn` tests can pause
@@ -224,7 +245,12 @@ pub struct DisposableSharedView<'a> {
 
 impl Drop for DisposableSharedView<'_> {
   fn drop(&mut self) {
-    record_shared_view_drop(self.id);
+    // Prove `T` is still alive (not yet dropped) when the `SharedReference`
+    // child view `S` runs its `Drop` impl during `finalize_class_instance`.
+    let parent_drops = get_disposable_drop_count(self.id);
+    let observed_value = self.res.value;
+    debug_assert_eq!(self.res.tag, format!("res-{}", self.id));
+    record_shared_view_drop(self.id, observed_value, parent_drops);
   }
 }
 
@@ -522,6 +548,24 @@ pub fn with_disposable_instance_callback(
   Ok((*inst).value)
 }
 
+#[napi]
+pub fn read_disposable_instance_from_object_property(obj: Object) -> Result<u32> {
+  let inst: ClassInstance<DisposableResource> = obj.get_named_property("res")?;
+  Ok((*inst).value)
+}
+
+#[napi]
+pub fn into_instance_disposed_in_callback(
+  env: &Env,
+  id: u32,
+  value: u32,
+  cb: Function<Object, ()>,
+) -> Result<u32> {
+  let inst = DisposableResource::new(id, value, None).into_instance(env)?;
+  cb.call(inst.as_object(env))?;
+  Ok((*inst).value)
+}
+
 #[napi(disposable, constructor)]
 pub struct DisposableDefaultCtor {
   pub id: u32,
@@ -621,10 +665,43 @@ pub fn create_disposable_zst() -> DisposableZst {
   DisposableZst
 }
 
+#[repr(align(16))]
+#[napi(disposable)]
+pub struct DisposableAlignedZst;
+
+impl Drop for DisposableAlignedZst {
+  fn drop(&mut self) {
+    ALIGNED_ZST_DROP_COUNT.fetch_add(1, Ordering::SeqCst);
+  }
+}
+
+#[napi]
+impl DisposableAlignedZst {
+  #[napi(constructor)]
+  pub fn new() -> Self {
+    Self
+  }
+
+  #[napi(factory)]
+  pub fn create() -> Self {
+    Self
+  }
+
+  #[napi]
+  pub fn ping(&self) -> u32 {
+    16
+  }
+}
+
+#[napi]
+pub fn create_disposable_aligned_zst() -> DisposableAlignedZst {
+  DisposableAlignedZst
+}
+
 #[napi(disposable)]
 pub struct DisposableWithLifetime<'a> {
   id: u32,
-  inner: ClassInstance<'a, DisposableResource>,
+  inner: ClassInstance<'a, DisposableNonDisposable>,
 }
 
 impl Drop for DisposableWithLifetime<'_> {
@@ -643,11 +720,9 @@ impl<'scope> DisposableWithLifetime<'scope> {
     env: &Env,
     mut this: This<'scope>,
   ) -> Result<Self> {
-    let instance = DisposableResource {
+    let instance = DisposableNonDisposable {
       id: inner_id,
       value,
-      tag: format!("lt-{id}"),
-      payload: Vec::new(),
     }
     .into_instance(env)?;
     let inner = instance.assign_to_this("inner", &mut this)?;
@@ -732,5 +807,24 @@ impl DisposableNonDisposable {
   #[napi]
   pub fn read(&self) -> u32 {
     self.value
+  }
+
+  #[napi]
+  pub fn try_assign_disposable_to_this(&self, env: &Env, mut this: This, id: u32) -> Result<()> {
+    let inst = DisposableResource::new(id, 1, None).into_instance(env)?;
+    let _ = inst.assign_to_this("inner", &mut this)?;
+    Ok(())
+  }
+
+  #[napi]
+  pub fn try_assign_disposable_to_this_with_attributes(
+    &self,
+    env: &Env,
+    mut this: This,
+    id: u32,
+  ) -> Result<()> {
+    let inst = DisposableResource::new(id, 1, None).into_instance(env)?;
+    let _ = inst.assign_to_this_with_attributes("inner", PropertyAttributes::Default, &mut this)?;
+    Ok(())
   }
 }

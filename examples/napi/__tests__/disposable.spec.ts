@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'ava'
 
 import {
+  DisposableAlignedZst,
   DisposableCustomFinalize,
   DisposableDefaultCtor,
   DisposableFieldHook,
@@ -14,15 +15,20 @@ import {
   RenamedDisposable,
   bumpDisposableMutRef,
   closeBorrowGate,
+  createDisposableAlignedZst,
   createDisposableByValue,
   createDisposableZst,
+  getDisposableAlignedZstDropCount,
   getDisposableDropCount,
   getDisposableFinalizeCount,
   getDisposableSharedViewDropCount,
+  getDisposableSharedViewDropObservation,
   getDisposableZstDropCount,
+  intoInstanceDisposedInCallback,
   openBorrowGate,
   openDisposableAsyncGate,
   readDisposableInstance,
+  readDisposableInstanceFromObjectProperty,
   readDisposableRef,
   readDisposableRefStrict,
   releaseDisposableAsyncGate,
@@ -268,6 +274,27 @@ test('re-entrant dispose inside sync callback defers drop until borrow exits (&s
   })
   t.is(out4, 44)
   t.is(getDisposableDropCount(id4), 1)
+
+  // ClassInstance<T>::from_napi_value outside argument conversion (object property lookup) is rejected.
+  const id5 = allocId()
+  const r5 = new DisposableResource(id5, 55)
+  t.throws(() => readDisposableInstanceFromObjectProperty({ res: r5 }), {
+    message: /Reference<T>/,
+  })
+  r5[Symbol.dispose]()
+  t.is(getDisposableDropCount(id5), 1)
+
+  // JavaScriptClassExt::into_instance pins the disposable instance for the active callback frame.
+  const id6 = allocId()
+  const out6 = intoInstanceDisposedInCallback(id6, 66, (arg) => {
+    const res = arg as DisposableResource
+    t.is(res.read(), 66)
+    res[Symbol.dispose]()
+    t.is(getDisposableDropCount(id6), 0)
+    t.throws(() => res.read(), disposedMsg('DisposableResource'))
+  })
+  t.is(out6, 66)
+  t.is(getDisposableDropCount(id6), 1)
 })
 
 test('re-entrant dispose during return-value conversion, field getter, and setter argument conversion', (t) => {
@@ -409,7 +436,8 @@ test('Reference, WeakReference, and SharedReference coordination', (t) => {
   savedHolder.release()
   t.is(getDisposableDropCount(id3), 1)
 
-  // SharedReference keeps T alive until released, then runs finalize_callbacks and drops T.
+  // SharedReference keeps T alive until released, then runs finalize_callbacks
+  // (dropping child views S while T is still alive) BEFORE dropping T.
   const id4 = allocId()
   const r4 = new DisposableResource(id4, 94)
   const shared = r4.createSharedHolder()
@@ -420,6 +448,8 @@ test('Reference, WeakReference, and SharedReference coordination', (t) => {
   shared.release()
   t.is(getDisposableDropCount(id4), 1)
   t.is(getDisposableSharedViewDropCount(id4), 1)
+  // [observed_value, parent_drop_count_when_view_dropped]
+  t.deepEqual(getDisposableSharedViewDropObservation(id4), [94, 0])
 })
 
 test('custom_finalize runs once, propagates error on dispose, and never clobbers a method error', (t) => {
@@ -507,7 +537,34 @@ test('zero-sized disposable struct drops cleanly across constructor, factory, an
   t.throws(() => c.ping(), disposedMsg('DisposableZst'))
 })
 
-test('disposable struct with lifetime parameter disposes cleanly', (t) => {
+test('aligned zero-sized disposable struct allocates distinct placeholders across instances', (t) => {
+  const before = getDisposableAlignedZstDropCount()
+  const a = new DisposableAlignedZst()
+  const b = DisposableAlignedZst.create()
+  const c = createDisposableAlignedZst()
+  t.is(a.ping(), 16)
+  t.is(b.ping(), 16)
+  t.is(c.ping(), 16)
+
+  // Disposing `a` must not collide with `b` or `c`.
+  a[Symbol.dispose]()
+  t.is(getDisposableAlignedZstDropCount(), before + 1)
+  t.throws(() => a.ping(), disposedMsg('DisposableAlignedZst'))
+  t.is(b.ping(), 16)
+  t.is(c.ping(), 16)
+
+  b[Symbol.dispose]()
+  t.is(getDisposableAlignedZstDropCount(), before + 2)
+  t.throws(() => b.ping(), disposedMsg('DisposableAlignedZst'))
+  t.is(c.ping(), 16)
+
+  c[Symbol.dispose]()
+  c[Symbol.dispose]()
+  t.is(getDisposableAlignedZstDropCount(), before + 3)
+  t.throws(() => c.ping(), disposedMsg('DisposableAlignedZst'))
+})
+
+test('disposable struct with lifetime parameter disposes cleanly and assign_to_this rejects disposable inner classes', (t) => {
   const outerId = allocId()
   const innerId = allocId()
   const obj = new DisposableWithLifetime(outerId, innerId, 123)
@@ -519,6 +576,14 @@ test('disposable struct with lifetime parameter disposes cleanly', (t) => {
   obj[Symbol.dispose]()
   t.is(getDisposableDropCount(outerId), 1)
   t.throws(() => obj.readInner(), disposedMsg('DisposableWithLifetime'))
+
+  const host = new DisposableNonDisposable(allocId(), 1)
+  t.throws(() => host.tryAssignDisposableToThis(allocId()), {
+    message: /assign_to_this.*Reference/,
+  })
+  t.throws(() => host.tryAssignDisposableToThisWithAttributes(allocId()), {
+    message: /assign_to_this_with_attributes.*Reference/,
+  })
 })
 
 test('repeated allocate + dispose does not grow wasm linear memory', (t) => {

@@ -67,9 +67,10 @@ pub(crate) fn catch_unwind_safely(f: impl FnOnce()) {
 /// Shared teardown for a wrapped `#[napi]` class instance, used by both the GC
 /// finalizer (`raw_finalize_unchecked`) and explicit disposal (`dispose_class_instance`).
 ///
-/// Removes the `REFERENCE_MAP` entry, runs `ObjectFinalize::finalize(self, env)`
-/// (dropping `T`), tears down `finalize_callbacks` and deletes `object_ref`, and
-/// frees any ZST placeholder last.
+/// Removes the `REFERENCE_MAP` entry, runs `finalize_callbacks` (dropping any
+/// `SharedReference` child views `S` while `T` is still alive), runs
+/// `ObjectFinalize::finalize(self, env)` (dropping `T`), deletes `object_ref`,
+/// and frees any ZST placeholder last.
 ///
 /// # Safety
 ///
@@ -79,15 +80,12 @@ pub(crate) unsafe fn finalize_class_instance<T: ObjectFinalize>(
   env: sys::napi_env,
   finalize_data: *mut c_void,
 ) -> Result<()> {
-  let data: Box<T> = unsafe { Box::from_raw(finalize_data.cast()) };
-  // Remove the `REFERENCE_MAP` entry and run the reference bookkeeping
-  // *regardless* of whether the user `finalize()` returns `Err`, so an errored
-  // finalize can never leave a stale entry keyed on the just-freed pointer.
+  // Remove the `REFERENCE_MAP` entry first so neither child finalizers nor
+  // `ObjectFinalize::finalize` can observe a stale entry keyed on `finalize_data`.
   let ref_entry = REFERENCE_MAP
     .with(|cell| cell.borrow_mut(|reference_map| reference_map.remove(&finalize_data)));
-  let finalize_result = data.finalize(Env::from_raw(env));
 
-  if let Some(RefEntry {
+  let ref_val = if let Some(RefEntry {
     info: (_, ref_val, finalize_callbacks_ptr),
     ..
   }) = ref_entry
@@ -104,8 +102,20 @@ pub(crate) unsafe fn finalize_class_instance<T: ObjectFinalize>(
         eprintln!("Arc strong count is: {rc_strong_count}, it should be 1 or 2");
       }
     }
+    // Drop `SharedReference` child views `S` (which borrow `&T`) BEFORE
+    // reconstructing `Box<T>` and dropping `T`.
     let finalize = unsafe { Box::from_raw(finalize_callbacks_rc.get()) };
     finalize();
+    drop(finalize_callbacks_rc);
+    Some(ref_val)
+  } else {
+    None
+  };
+
+  let data: Box<T> = unsafe { Box::from_raw(finalize_data.cast()) };
+  let finalize_result = data.finalize(Env::from_raw(env));
+
+  if let Some(ref_val) = ref_val {
     let delete_reference_status = unsafe { sys::napi_delete_reference(env, ref_val) };
     debug_assert!(
       delete_reference_status == sys::Status::napi_ok,

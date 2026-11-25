@@ -436,6 +436,19 @@ test.skipIf(!isThreadlessWasiBufferTest)(
       )
       t.deepEqual(exports.uint8ClampedSliceCopyFromReadBack([]), [])
 
+      // `assign_to_this` must eagerly resolve the lazy wasm pointer before
+      // extending the slice lifetime past the constructor's handle scope.
+      const assigned = new exports.AssignedTypedArraySlices(
+        [1, 2, 3, 4],
+        [10, 20, 255],
+      )
+      t.deepEqual(assigned.readU8(), [1, 2, 3, 4])
+      t.deepEqual(assigned.readClamped(), [10, 20, 255])
+      t.deepEqual(assigned.readEmptyU8(), [])
+      t.deepEqual(assigned.readEmptyClamped(), [])
+      t.deepEqual(Array.from(assigned.u8), [1, 2, 3, 4])
+      t.deepEqual(Array.from(assigned.clamped), [10, 20, 255])
+
       const memoryBefore = exports.wasmMemorySizeBytes()
       // Hold 48 MiB (4 kinds * 48 * 256 KiB) of returned ArrayBuffers and
       // TypedArrays strongly in JS so FinalizationRegistry cannot run.

@@ -1492,13 +1492,19 @@ macro_rules! impl_from_slice {
           "Failed to assign {} to this",
           $slice_type::type_name()
         )?;
+        #[cfg(target_family = "wasm")]
+        let resolved = if self.length == 0 {
+          None
+        } else {
+          Some(self.data_ptr())
+        };
         Ok($slice_type {
           env: self.env,
           raw_value: self.raw_value,
           #[cfg(not(target_family = "wasm"))]
           inner: self.inner,
           #[cfg(target_family = "wasm")]
-          inner: self.inner.clone(),
+          inner: Cell::new(resolved),
           length: self.length,
           _marker: PhantomData,
         })
@@ -2317,7 +2323,11 @@ impl<'env> Uint8ClampedSlice<'env> {
   }
 
   /// extends the lifetime of the `TypedArray` to the lifetime of the `This`
-  pub fn assign_to_this<'a, U>(&self, this: This<'a, U>, name: &str) -> Result<Self>
+  pub fn assign_to_this<'a, U>(
+    &self,
+    this: This<'a, U>,
+    name: &str,
+  ) -> Result<Uint8ClampedSlice<'a>>
   where
     U: FromNapiValue + JsObjectValue<'a>,
   {
@@ -2329,13 +2339,19 @@ impl<'env> Uint8ClampedSlice<'env> {
       "Failed to assign {} to this",
       Self::type_name()
     )?;
-    Ok(Self {
+    #[cfg(target_family = "wasm")]
+    let resolved = if self.length == 0 {
+      None
+    } else {
+      Some(self.data_ptr())
+    };
+    Ok(Uint8ClampedSlice {
       env: self.env,
       raw_value: self.raw_value,
       #[cfg(not(target_family = "wasm"))]
       inner: self.inner,
       #[cfg(target_family = "wasm")]
-      inner: self.inner.clone(),
+      inner: Cell::new(resolved),
       length: self.length,
       _marker: PhantomData,
     })

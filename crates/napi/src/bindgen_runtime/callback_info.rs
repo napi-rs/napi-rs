@@ -11,9 +11,6 @@ thread_local! {
   pub static ___CALL_FROM_FACTORY: Cell<bool> = const { Cell::new(false) };
 }
 
-#[repr(transparent)]
-struct EmptyStructPlaceholder(u8);
-
 #[doc(hidden)]
 pub struct CallbackInfo<const N: usize> {
   env: sys::napi_env,
@@ -90,14 +87,8 @@ impl<const N: usize> CallbackInfo<N> {
     obj: T,
   ) -> Result<(sys::napi_value, *mut T)> {
     let class_id = class_id_of::<T>()?;
-    let obj = Box::new(obj);
     let this = self.this();
-    let mut value_ref = Box::into_raw(obj);
-    // for empty struct like `#[napi] struct A;`, the `value_ref` will be `0x1`
-    // and it will be overwritten by the others instance of the same class
-    if IsEmptyStructHint || value_ref as usize == 0x1 {
-      value_ref = Box::into_raw(Box::new(EmptyStructPlaceholder(0))).cast();
-    }
+    let value_ref = alloc_class_value(obj);
     let mut object_ref = ptr::null_mut();
     let status = unsafe {
       sys::napi_wrap(
@@ -245,15 +236,8 @@ impl<const N: usize> CallbackInfo<N> {
       return Ok((ptr::null_mut(), ptr::null_mut()));
     }
     check_status!(status, "Failed to create instance of class `{}`", js_name)?;
-    let obj = Box::new(obj);
     let mut object_ref = ptr::null_mut();
-    let mut value_ref = Box::into_raw(obj);
-
-    // for empty struct like `#[napi] struct A;`, the `value_ref` will be `0x1`
-    // and it will be overwritten by the others instance of the same class
-    if value_ref as usize == 0x1 {
-      value_ref = Box::into_raw(Box::new(EmptyStructPlaceholder(0))).cast();
-    }
+    let value_ref = alloc_class_value(obj);
     let status = unsafe {
       sys::napi_wrap(
         self.env,

@@ -69,7 +69,7 @@ fn native_borrows(key: usize) -> MutexGuard<'static, NativeBorrowMap> {
 type SharedStorage = Arc<Mutex<NativeBorrowStorage>>;
 
 enum ScopeEntry {
-  Barrier,
+  Barrier(Option<Vec<(sys::napi_env, DisposePinGuard)>>),
   Collecting(Option<SharedStorage>),
 }
 
@@ -507,7 +507,7 @@ pub struct NativeBorrowBarrier {
 impl NativeBorrowBarrier {
   #[doc(hidden)]
   pub fn new() -> Self {
-    NATIVE_BORROW_SCOPES.with(|scopes| scopes.borrow_mut().push(ScopeEntry::Barrier));
+    NATIVE_BORROW_SCOPES.with(|scopes| scopes.borrow_mut().push(ScopeEntry::Barrier(None)));
     let len = DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| scopes.borrow().len());
     Self {
       saved_floor: DEFERRED_NATIVE_BORROW_FLOOR.with(|floor| floor.replace(len)),
@@ -518,15 +518,17 @@ impl NativeBorrowBarrier {
 
 impl Drop for NativeBorrowBarrier {
   fn drop(&mut self) {
-    NATIVE_BORROW_SCOPES.with(|scopes| {
+    let barrier_pins = NATIVE_BORROW_SCOPES.with(|scopes| {
       let barrier = scopes
         .borrow_mut()
         .pop()
         .expect("native borrow barriers must be dropped in stack order");
-      assert!(
-        matches!(barrier, ScopeEntry::Barrier),
-        "native borrow barriers must not overlap conversion scopes"
-      );
+      match barrier {
+        ScopeEntry::Barrier(pins) => pins,
+        ScopeEntry::Collecting(_) => {
+          panic!("native borrow barriers must not overlap conversion scopes")
+        }
+      }
     });
     let floor = DEFERRED_NATIVE_BORROW_FLOOR.with(|floor| floor.replace(self.saved_floor));
     // A well-formed reentrant frame pops every scope it deferred through its own
@@ -542,6 +544,15 @@ impl Drop for NativeBorrowBarrier {
       }
     });
     drop(leftover);
+    // Release any disposable `into_instance` pins acquired in this callback frame
+    // AFTER popping the barrier from TLS so deferred finalizers can freely re-enter.
+    if let Some(pins) = barrier_pins {
+      for (env, pin) in pins {
+        if let Some(pending) = pin.release_inner() {
+          complete_pending_dispose(pending, ReleaseMode::LiveEnv(env));
+        }
+      }
+    }
   }
 }
 
@@ -1280,22 +1291,12 @@ unsafe fn register_native_borrow_with_value_in_scope<T>(
   Ok(())
 }
 
-/// Pins a disposable class instance in the currently collecting borrow scope, if
-/// one is active (and not hidden behind a `NativeBorrowBarrier`). Used by
-/// `ClassInstance<T>::from_napi_value` so re-entrant `[Symbol.dispose]()` defers
-/// until the callback finishes.
-pub(crate) unsafe fn try_pin_disposable_in_scope(
+unsafe fn pin_disposable_in_collecting_scope(
+  scope: SharedStorage,
   env: sys::napi_env,
   napi_val: sys::napi_value,
   value: *mut c_void,
 ) -> Result<()> {
-  let scope = NATIVE_BORROW_SCOPES.with(|scopes| match scopes.borrow_mut().last_mut() {
-    Some(ScopeEntry::Collecting(storage)) => Some(storage.get_or_insert_with(new_storage).clone()),
-    _ => None,
-  });
-  let Some(scope) = scope else {
-    return Ok(());
-  };
   let pin = DisposePinGuard::acquire(value)?;
   let mut storage = lock_storage(&scope);
   if storage.root_values {
@@ -1303,6 +1304,8 @@ pub(crate) unsafe fn try_pin_disposable_in_scope(
       let mut reference = ptr::null_mut();
       let status = unsafe { sys::napi_create_reference(env, napi_val, 1, &mut reference) };
       if status != sys::Status::napi_ok {
+        drop(storage);
+        drop(pin);
         return Err(Error::new(
           Status::from(status),
           "Failed to root JavaScript value for a disposable ClassInstance".to_owned(),
@@ -1319,6 +1322,78 @@ pub(crate) unsafe fn try_pin_disposable_in_scope(
   }
   storage.dispose_pins.push(pin);
   Ok(())
+}
+
+/// Pins a disposable class instance in the currently collecting borrow scope.
+/// Used by `ClassInstance<T>::from_napi_value` so re-entrant `[Symbol.dispose]()`
+/// defers until the callback finishes, and rejects extraction outside generated
+/// callback argument conversion (empty stack or behind a `NativeBorrowBarrier`)
+/// so no unpinned `ClassInstance` can escape.
+pub(crate) unsafe fn pin_disposable_in_scope(
+  env: sys::napi_env,
+  napi_val: sys::napi_value,
+  value: *mut c_void,
+) -> Result<()> {
+  let scope = current_native_borrow_scope().map_err(|_| {
+    Error::new(
+      Status::InvalidArg,
+      "Disposable `ClassInstance` can only be extracted during generated callback argument conversion; use `Reference<T>` instead"
+        .to_owned(),
+    )
+  })?;
+  unsafe { pin_disposable_in_collecting_scope(scope, env, napi_val, value) }
+}
+
+/// Pins a disposable class instance in the active `#[napi]` callback frame
+/// (either a collecting argument-conversion scope or the active callback's
+/// `NativeBorrowBarrier`). Used by generated `JavaScriptClassExt::into_instance`
+/// for `#[napi(disposable)]` classes so re-entrant `[Symbol.dispose]()` during
+/// the callback defers drop until the frame exits.
+///
+/// # Safety
+///
+/// `env` must be a live `napi_env` on the owning JS thread, `napi_val` must be
+/// the wrapped JS object in `env` (or null in unit tests), and `value` must be
+/// the wrapped native pointer.
+#[doc(hidden)]
+pub unsafe fn pin_disposable_in_active_frame(
+  env: sys::napi_env,
+  napi_val: sys::napi_value,
+  value: *mut c_void,
+) -> Result<()> {
+  enum ActiveFrame {
+    Collecting(SharedStorage),
+    Barrier,
+    None,
+  }
+  let frame = NATIVE_BORROW_SCOPES.with(|scopes| match scopes.borrow_mut().last_mut() {
+    Some(ScopeEntry::Collecting(storage)) => {
+      ActiveFrame::Collecting(storage.get_or_insert_with(new_storage).clone())
+    }
+    Some(ScopeEntry::Barrier(_)) => ActiveFrame::Barrier,
+    None => ActiveFrame::None,
+  });
+  match frame {
+    ActiveFrame::Collecting(scope) => {
+      unsafe { pin_disposable_in_collecting_scope(scope, env, napi_val, value) }
+    }
+    ActiveFrame::Barrier => {
+      let pin = DisposePinGuard::acquire(value)?;
+      NATIVE_BORROW_SCOPES.with(|scopes| {
+        if let Some(ScopeEntry::Barrier(pins)) = scopes.borrow_mut().last_mut() {
+          pins.get_or_insert_with(Vec::new).push((env, pin));
+        } else {
+          unreachable!("active native borrow barrier disappeared during pin acquisition");
+        }
+      });
+      Ok(())
+    }
+    ActiveFrame::None => Err(Error::new(
+      Status::InvalidArg,
+      "Disposable `into_instance` requires an active `#[napi]` callback frame; return the value directly or use `into_reference` instead"
+        .to_owned(),
+    )),
+  }
 }
 
 /// Coordinates explicit `[Symbol.dispose]()` with active borrows, `ClassInstance`
@@ -2095,21 +2170,24 @@ mod tests {
     let counter = AtomicUsize::new(0);
     let ptr = (&counter as *const AtomicUsize).cast_mut().cast::<c_void>();
 
-    // Outside a collecting scope or behind a barrier: no pin is acquired.
-    unsafe { try_pin_disposable_in_scope(env, ptr::null_mut(), ptr) }.unwrap();
+    // Outside a collecting scope or behind a barrier: extraction is rejected.
+    let err = unsafe { pin_disposable_in_scope(env, ptr::null_mut(), ptr) }.unwrap_err();
+    assert_eq!(err.status, Status::InvalidArg);
     assert!(!schedule_or_defer_dispose(env, ptr, false, count_finalize));
 
     {
       let mut scope = unsafe { NativeBorrowScope::new() };
-      unsafe { try_pin_disposable_in_scope(env, ptr::null_mut(), ptr) }.unwrap();
+      unsafe { pin_disposable_in_scope(env, ptr::null_mut(), ptr) }.unwrap();
       scope.finish();
 
       {
         let _barrier = NativeBorrowBarrier::new();
-        // Inside a barrier, another ClassInstance conversion does not pin into the outer scope.
+        // Inside a barrier, `ClassInstance::from_napi_value` rejects extraction instead of
+        // silently leaving an unpinned handle or pinning into the outer scope.
         let other = AtomicUsize::new(0);
         let other_ptr = (&other as *const AtomicUsize).cast_mut().cast::<c_void>();
-        unsafe { try_pin_disposable_in_scope(env, ptr::null_mut(), other_ptr) }.unwrap();
+        let err = unsafe { pin_disposable_in_scope(env, ptr::null_mut(), other_ptr) }.unwrap_err();
+        assert_eq!(err.status, Status::InvalidArg);
         assert!(!schedule_or_defer_dispose(
           env,
           other_ptr,
@@ -2131,10 +2209,65 @@ mod tests {
     // Collecting scope dropped in-frame (e.g. arg conversion `?` early return) completes synchronously.
     {
       let scope = unsafe { NativeBorrowScope::new() };
-      unsafe { try_pin_disposable_in_scope(env, ptr::null_mut(), ptr) }.unwrap();
+      unsafe { pin_disposable_in_scope(env, ptr::null_mut(), ptr) }.unwrap();
       assert!(schedule_or_defer_dispose(env, ptr, false, count_finalize));
       assert_eq!(counter.load(Ordering::SeqCst), 1);
       drop(scope);
+      assert_eq!(counter.load(Ordering::SeqCst), 2);
+    }
+  }
+
+  #[test]
+  fn pin_disposable_in_active_frame_pins_barrier_and_collecting_scope() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    unsafe fn reentrant_finalize(_env: sys::napi_env, ptr: *mut c_void) -> Result<()> {
+      // Finalizer runs after barrier is popped from TLS and locks are released.
+      let _inner = NativeBorrowBarrier::new();
+      let reentrant = acquire_native_borrow(ptr, true).unwrap();
+      let counter = unsafe { &*(ptr as *const AtomicUsize) };
+      counter.fetch_add(1, Ordering::SeqCst);
+      drop(reentrant);
+      Ok(())
+    }
+
+    let env = 0x2000usize as sys::napi_env;
+    let counter = AtomicUsize::new(0);
+    let ptr = (&counter as *const AtomicUsize).cast_mut().cast::<c_void>();
+
+    // Empty stack is rejected.
+    let err = unsafe { pin_disposable_in_active_frame(env, ptr::null_mut(), ptr) }.unwrap_err();
+    assert_eq!(err.status, Status::InvalidArg);
+
+    // Active barrier pins the instance and runs deferred finalize synchronously on barrier drop.
+    {
+      let barrier = NativeBorrowBarrier::new();
+      unsafe { pin_disposable_in_active_frame(env, ptr::null_mut(), ptr) }.unwrap();
+      assert!(schedule_or_defer_dispose(
+        env,
+        ptr,
+        false,
+        reentrant_finalize
+      ));
+      assert_eq!(counter.load(Ordering::SeqCst), 0);
+      drop(barrier);
+      assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    // Active collecting scope pins into the collecting scope.
+    {
+      let mut scope = unsafe { NativeBorrowScope::new() };
+      unsafe { pin_disposable_in_active_frame(env, ptr::null_mut(), ptr) }.unwrap();
+      scope.finish();
+      assert!(schedule_or_defer_dispose(
+        env,
+        ptr,
+        false,
+        reentrant_finalize
+      ));
+      assert_eq!(counter.load(Ordering::SeqCst), 1);
+      let guard = defer_native_borrow_scope(scope, env);
+      drop(guard);
       assert_eq!(counter.load(Ordering::SeqCst), 2);
     }
   }
