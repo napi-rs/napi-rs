@@ -185,13 +185,23 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@emnapi/core@npm:2.0.0-beta.3, @emnapi/core@npm:^2.0.0-beta.3":
+"@emnapi/core@npm:2.0.0-beta.3":
   version: 2.0.0-beta.3
   resolution: "@emnapi/core@npm:2.0.0-beta.3"
   dependencies:
     "@emnapi/wasi-threads": "npm:2.2.0"
     tslib: "npm:^2.4.0"
   checksum: 10c0/24f093e7ce2d827ecc357f94f4ffb62f7c3354c0cae44280cdfe54e3566c2ce47b6fb3e3b8c0ab1f4094ed7551a8785cc7212721daaf766a62dd93c7828d4b56
+  languageName: node
+  linkType: hard
+
+"@emnapi/core@npm:2.0.0-beta.4, @emnapi/core@npm:^2.0.0-beta.4":
+  version: 2.0.0-beta.4
+  resolution: "@emnapi/core@npm:2.0.0-beta.4"
+  dependencies:
+    "@emnapi/wasi-threads": "npm:2.2.0"
+    tslib: "npm:^2.4.0"
+  checksum: 10c0/bd89013c24235f45ef40b94801b4a20662132e9b77fd142d1b20c9eeb16cc570ce8bb7c575f75f694fdb5e7e385e1ac665e28b9a36907473389637f04da4c423
   languageName: node
   linkType: hard
 
@@ -204,12 +214,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@emnapi/runtime@npm:2.0.0-beta.3, @emnapi/runtime@npm:^2.0.0-beta.3":
+"@emnapi/runtime@npm:2.0.0-beta.3":
   version: 2.0.0-beta.3
   resolution: "@emnapi/runtime@npm:2.0.0-beta.3"
   dependencies:
     tslib: "npm:^2.4.0"
   checksum: 10c0/d6ddee4458aacaaff5e83762e72adb369470319ffd3fe2ebf13db0750aecca026e84786ed67cf209afb94c4318d265e937276bcafd8b7e8a169e547a541e2df1
+  languageName: node
+  linkType: hard
+
+"@emnapi/runtime@npm:2.0.0-beta.4, @emnapi/runtime@npm:^2.0.0-beta.4":
+  version: 2.0.0-beta.4
+  resolution: "@emnapi/runtime@npm:2.0.0-beta.4"
+  dependencies:
+    tslib: "npm:^2.4.0"
+  checksum: 10c0/8b1ee462282a0ae868f985e980e7cda535f683a099b8f3ed13787fa349ff2778dfb35540cd54d0c7564d66629aa4bb455bc69e2245c8d28be9b3bc2fb6955218
   languageName: node
   linkType: hard
 
@@ -443,8 +462,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@examples/custom-async-runtime@workspace:examples/custom-async-runtime"
   dependencies:
-    "@emnapi/core": "npm:2.0.0-beta.3"
-    "@emnapi/runtime": "npm:2.0.0-beta.3"
+    "@emnapi/core": "npm:2.0.0-beta.4"
+    "@emnapi/runtime": "npm:2.0.0-beta.4"
     "@napi-rs/cli": "workspace:*"
     "@napi-rs/wasm-runtime": "workspace:*"
     "@vitest/browser-playwright": "npm:^5.0.0"
@@ -460,8 +479,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@examples/napi@workspace:examples/napi"
   dependencies:
-    "@emnapi/core": "npm:2.0.0-beta.3"
-    "@emnapi/runtime": "npm:2.0.0-beta.3"
+    "@emnapi/core": "npm:2.0.0-beta.4"
+    "@emnapi/runtime": "npm:2.0.0-beta.4"
     "@napi-rs/cli": "workspace:*"
     "@napi-rs/triples": "workspace:*"
     "@napi-rs/wasm-runtime": "workspace:*"
@@ -495,8 +514,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@examples/shared-async-runtime@workspace:examples/shared-async-runtime"
   dependencies:
-    "@emnapi/core": "npm:2.0.0-beta.3"
-    "@emnapi/runtime": "npm:2.0.0-beta.3"
+    "@emnapi/core": "npm:2.0.0-beta.4"
+    "@emnapi/runtime": "npm:2.0.0-beta.4"
     "@napi-rs/async-runtime": "workspace:*"
     "@napi-rs/cli": "workspace:*"
     "@napi-rs/wasm-runtime": "workspace:*"
@@ -507,8 +526,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@examples/wasi-heap-sync@workspace:examples/wasi-heap-sync"
   dependencies:
-    "@emnapi/core": "npm:2.0.0-beta.3"
-    "@emnapi/runtime": "npm:2.0.0-beta.3"
+    "@emnapi/core": "npm:2.0.0-beta.4"
+    "@emnapi/runtime": "npm:2.0.0-beta.4"
     "@napi-rs/cli": "workspace:*"
     "@napi-rs/wasm-runtime": "workspace:*"
   languageName: unknown
@@ -1403,8 +1422,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@napi-rs/cli@workspace:cli"
   dependencies:
-    "@emnapi/core": "npm:^2.0.0-beta.3"
-    "@emnapi/runtime": "npm:^2.0.0-beta.3"
+    "@emnapi/core": "npm:^2.0.0-beta.4"
+    "@emnapi/runtime": "npm:^2.0.0-beta.4"
     "@inquirer/prompts": "npm:^8.7.5"
     "@napi-rs/cross-toolchain": "npm:^1.0.5"
     "@napi-rs/wasm-tools": "npm:^1.1.2"
@@ -1418,7 +1437,7 @@ __metadata:
     ava: "npm:^8.3.0"
     clipanion: "npm:^4.0.0-rc.4"
     colorette: "npm:^2.0.20"
-    emnapi: "npm:^2.0.0-beta.3"
+    emnapi: "npm:^2.0.0-beta.4"
     empathic: "npm:^2.1.0"
     env-paths: "npm:^4.0.0"
     es-toolkit: "npm:^1.53.1"
@@ -1861,8 +1880,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@napi-rs/wasm-runtime@workspace:wasm-runtime"
   dependencies:
-    "@emnapi/core": "npm:2.0.0-beta.3"
-    "@emnapi/runtime": "npm:2.0.0-beta.3"
+    "@emnapi/core": "npm:2.0.0-beta.4"
+    "@emnapi/runtime": "npm:2.0.0-beta.4"
     "@tybys/wasm-util": "npm:^0.10.3"
     buffer: "npm:^6.0.3"
     events: "npm:^3.3.0"
@@ -1875,8 +1894,8 @@ __metadata:
     tslib: "npm:^2.8.1"
     wabt: "npm:^1.0.39"
   peerDependencies:
-    "@emnapi/core": ^1.7.1 || 2.0.0-beta.2 || 2.0.0-beta.3
-    "@emnapi/runtime": ^1.7.1 || 2.0.0-beta.2 || 2.0.0-beta.3
+    "@emnapi/core": ^1.7.1 || 2.0.0-beta.2 || 2.0.0-beta.3 || 2.0.0-beta.4
+    "@emnapi/runtime": ^1.7.1 || 2.0.0-beta.2 || 2.0.0-beta.3 || 2.0.0-beta.4
   languageName: unknown
   linkType: soft
 
@@ -5937,15 +5956,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"emnapi@npm:^2.0.0-beta.3":
-  version: 2.0.0-beta.3
-  resolution: "emnapi@npm:2.0.0-beta.3"
+"emnapi@npm:^2.0.0-beta.4":
+  version: 2.0.0-beta.4
+  resolution: "emnapi@npm:2.0.0-beta.4"
   peerDependencies:
     node-addon-api: ">= 6.1.0"
   peerDependenciesMeta:
     node-addon-api:
       optional: true
-  checksum: 10c0/e6fb5aac2efd0b44b27989e9ad2ec50137b23a3f9698b313eae8474d4e39a1d9ca5b83ac488bd8af55516256783178a3456007d7a9d448715b25f16cde876822
+  checksum: 10c0/ae884b5b61f81c52d9fd274bbb3b7744736b3b62463a8658b111459e57aab3e814b7833c0bf1e8a2b11a733e86600f85334bd7942832fae2edef994a90fdb4e9
   languageName: node
   linkType: hard
 

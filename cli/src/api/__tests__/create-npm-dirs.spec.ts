@@ -792,7 +792,7 @@ test('formatWasmRuntimeDependencyVersion pins exact when local with prerelease e
   t.is(
     formatWasmRuntimeDependencyVersion(
       { version: '1.2.6', fromLocal: true },
-      '2.0.0-beta.3',
+      '2.0.0-beta.4',
     ),
     '1.2.6',
   )
@@ -813,7 +813,7 @@ test('formatWasmRuntimeDependencyVersion pins exact when local with prerelease e
   t.is(
     formatWasmRuntimeDependencyVersion(
       { version: '1.2.6', fromLocal: false },
-      '2.0.0-beta.3',
+      '2.0.0-beta.4',
     ),
     '~1.2.6',
   )
