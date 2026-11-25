@@ -10,13 +10,15 @@
 //!   [`block_on`], [`sleep_until`], [`configure`], [`start`], [`shutdown`],
 //!   the host driver SPIs ([`CurrentThreadTaskDriver`], [`TimerDriver`]), and
 //!   the metrics/introspection helpers.
-//! - **napi adapter** (feature `napi`, on by default): an
+//! - **napi adapter** (feature `napi`, on by default; also composable via
+//!   granular features `napi-backend`, `napi-task-host`, `napi-timer-host`,
+//!   `napi-timer-host-stub`, and `napi-js-config`): an
 //!   `unsafe impl AsyncRuntime` backend for napi-rs' `async-runtime` SPI plus
 //!   the JavaScript-facing host protocol (`registerCurrentThreadTaskHost`,
-//!   `registerTimerHost`, config/metrics exports). Hosts call [`install`] from
-//!   their own `#[napi_derive::module_init]` hook after resolving their
-//!   runtime configuration; this crate deliberately ships no `module_init` of
-//!   its own.
+//!   `registerTimerHost`, config/metrics exports). Hosts call [`install`] or
+//!   [`install_exact`] from their own `#[napi_derive::module_init]` hook after
+//!   resolving their runtime configuration; this crate deliberately ships no
+//!   `module_init` of its own.
 
 /// Maximum number of physical workers a scheduler owned by this crate may
 /// create.
@@ -41,11 +43,13 @@ pub const fn max_async_runtime_worker_threads() -> usize {
 
 mod async_runtime;
 pub use async_runtime::*;
+mod env_config;
+pub use env_config::*;
 mod sync;
 
-#[cfg(feature = "napi")]
+#[cfg(feature = "napi-backend")]
 mod adapter;
-#[cfg(feature = "napi")]
+#[cfg(feature = "napi-backend")]
 pub mod js_callback;
-#[cfg(feature = "napi")]
+#[cfg(feature = "napi-backend")]
 pub use adapter::*;

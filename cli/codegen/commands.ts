@@ -203,6 +203,12 @@ const BUILD_OPTIONS: CommandSchema = {
       long: 'no-js',
     },
     {
+      name: 'binaryOnly',
+      type: 'boolean',
+      description:
+        'Only emit compiled binary artifacts (`.node`, `.wasm`, `.debug.wasm`) and skip generating or modifying JS, TypeScript declaration, and WASI loader files',
+    },
+    {
       name: 'dts',
       type: 'string',
       description:

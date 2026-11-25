@@ -48,6 +48,7 @@ import {
   writeJsBinding,
 } from '../build.js'
 import { getSystemDefaultTarget, scanExportedName } from '../../utils/index.js'
+import { createBuildCommand } from '../../index.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '../../../..')
@@ -4635,11 +4636,20 @@ function buildSyntheticWasiWasm(options: {
   stackPointer?: number
   stackPointerMutable?: boolean
   exportInitialize?: boolean
+  exportStart?: boolean
+  customSections?: Array<{ name: string; payload: number[] }>
 }): Uint8Array {
   const sections: number[] = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
   const exportInitialize = options.exportInitialize ?? true
-
+  const exportedFuncs: string[] = []
   if (exportInitialize) {
+    exportedFuncs.push('_initialize')
+  }
+  if (options.exportStart) {
+    exportedFuncs.push('_start')
+  }
+
+  if (exportedFuncs.length > 0) {
     // Type section: 1 type () -> ()
     sections.push(...encodeWasmSection(1, [0x01, 0x60, 0x00, 0x00]))
   }
@@ -4679,9 +4689,14 @@ function buildSyntheticWasiWasm(options: {
     )
   }
 
-  if (exportInitialize) {
-    // Function section: 1 func of type 0
-    sections.push(...encodeWasmSection(3, [0x01, 0x00]))
+  if (exportedFuncs.length > 0) {
+    // Function section: one () -> () func per exported entry point
+    sections.push(
+      ...encodeWasmSection(3, [
+        ...encodeWasmU32(exportedFuncs.length),
+        ...exportedFuncs.map(() => 0x00),
+      ]),
+    )
   }
 
   if (options.stackPointer !== undefined) {
@@ -4698,18 +4713,34 @@ function buildSyntheticWasiWasm(options: {
     )
   }
 
-  if (exportInitialize) {
-    // Export section: _initialize -> func 0
+  if (exportedFuncs.length > 0) {
+    // Export section
     sections.push(
       ...encodeWasmSection(7, [
-        0x01,
-        ...encodeWasmStr('_initialize'),
-        0x00,
-        0x00,
+        ...encodeWasmU32(exportedFuncs.length),
+        ...exportedFuncs.flatMap((name, index) => [
+          ...encodeWasmStr(name),
+          0x00,
+          ...encodeWasmU32(index),
+        ]),
       ]),
     )
-    // Code section: empty body
-    sections.push(...encodeWasmSection(10, [0x01, 0x02, 0x00, 0x0b]))
+    // Code section: empty body per function
+    sections.push(
+      ...encodeWasmSection(10, [
+        ...encodeWasmU32(exportedFuncs.length),
+        ...exportedFuncs.flatMap(() => [0x02, 0x00, 0x0b]),
+      ]),
+    )
+  }
+
+  for (const customSection of options.customSections ?? []) {
+    sections.push(
+      ...encodeWasmSection(0, [
+        ...encodeWasmStr(customSection.name),
+        ...customSection.payload,
+      ]),
+    )
   }
 
   return new Uint8Array(sections)
@@ -4924,6 +4955,32 @@ test('verifyWasiReactor checks stack pointer, maximumMemory, and explicit initia
         /imports env\.memory with minimum 16 pages, which is smaller than NAPI_WASI_STACK_SIZE \(2097152 bytes\)\. Upgrade `napi-build` to >= 2\.7\.0/,
     },
   )
+
+  // Command module (`_start` without `_initialize`) is rejected
+  const commandModulePath = join(projectDir, 'command-module.wasm')
+  await writeFile(
+    commandModulePath,
+    buildSyntheticWasiWasm({
+      exportInitialize: false,
+      exportStart: true,
+    }),
+  )
+  await t.throwsAsync(() => verifyWasiReactor(commandModulePath), {
+    message: /does not export _initialize and exports _start/,
+  })
+
+  // Hybrid module exporting both `_initialize` and `_start` is rejected
+  const hybridModulePath = join(projectDir, 'hybrid-module.wasm')
+  await writeFile(
+    hybridModulePath,
+    buildSyntheticWasiWasm({
+      exportInitialize: true,
+      exportStart: true,
+    }),
+  )
+  await t.throwsAsync(() => verifyWasiReactor(hybridModulePath), {
+    message: /exports _start/,
+  })
 })
 
 // The `cargo` shim below has to actually run, and `spawn`/`execSync` cannot
@@ -4935,6 +4992,10 @@ interface RecordingCargoProject {
   run: (options: {
     target?: string
     crossCompile?: boolean
+    binaryOnly?: boolean
+    targetDir?: string
+    jsBinding?: string
+    dts?: string
     env?: Record<string, string>
     /** Serve a canned `cargo metadata` response instead of real cargo. */
     cannedMetadata?: boolean
@@ -5037,7 +5098,16 @@ exit 0
   return {
     argsDir,
     restoreEnv,
-    run: async ({ target, crossCompile, env, cannedMetadata }) => {
+    run: async ({
+      target,
+      crossCompile,
+      binaryOnly,
+      targetDir,
+      jsBinding,
+      dts,
+      env,
+      cannedMetadata,
+    }) => {
       if (cannedMetadata) {
         // A real `cargo metadata` snapshot: every field `Builder` reads is
         // genuine for this crate. `--manifest-path` is passed the way
@@ -5072,6 +5142,10 @@ exit 0
           cwd: projectDir,
           target,
           crossCompile,
+          binaryOnly,
+          targetDir,
+          jsBinding,
+          dts,
           platform: true,
           release: true,
           outputDir: 'dist',
@@ -5470,6 +5544,393 @@ posixOnly(
         delete process.env.NAPI_WASI_STACK_SIZE
       } else {
         process.env.NAPI_WASI_STACK_SIZE = originalStackSize
+      }
+      shim.restoreEnv()
+    }
+  },
+)
+
+test('createBuildCommand parses --binary-only into build options', (t) => {
+  const command = createBuildCommand(['--binary-only'])
+  t.is(command.getOptions().binaryOnly, true)
+})
+
+posixOnly(
+  'WASI build validates .debug.wasm alongside .wasm and rejects modules exporting _start',
+  async (t) => {
+    const { projectDir } = t.context
+    const target = 'wasm32-wasip1'
+    const shim = await setupRecordingCargoProject(
+      t,
+      'wasi_debug_verify',
+      'wasi-debug-verify',
+    )
+
+    const cliRequire = createRequire(import.meta.url)
+    const emnapiVersion: string = cliRequire('emnapi/package.json').version
+    for (const pkg of ['@emnapi/core', '@emnapi/runtime']) {
+      const pkgDir = join(projectDir, 'node_modules', pkg)
+      await mkdir(pkgDir, { recursive: true })
+      await writeFile(
+        join(pkgDir, 'package.json'),
+        JSON.stringify({ name: pkg, version: emnapiVersion }),
+      )
+    }
+
+    await writeFile(
+      join(projectDir, 'package.json'),
+      JSON.stringify({
+        name: 'wasi-debug-verify',
+        version: '0.1.0',
+        napi: {
+          binaryName: 'wasi-debug-verify',
+          targets: [target],
+        },
+      }),
+    )
+
+    const targetDir = join(projectDir, 'target')
+    const artifactDir = join(targetDir, target, 'release')
+    await mkdir(artifactDir, { recursive: true })
+    const srcWasmPath = join(artifactDir, 'wasi_debug_verify.wasm')
+    const originalStackSize = process.env.NAPI_WASI_STACK_SIZE
+
+    try {
+      delete process.env.NAPI_WASI_STACK_SIZE
+
+      // A valid reactor emits both .wasm and .debug.wasm and passes verification
+      await writeFile(
+        srcWasmPath,
+        buildSyntheticWasiWasm({
+          memoryMinPages: 32,
+          stackPointer: 1_048_576,
+        }),
+      )
+      await t.notThrowsAsync(async () => {
+        await (
+          await shim.run({
+            target,
+            targetDir,
+            cannedMetadata: true,
+            binaryOnly: true,
+          })
+        ).task
+      })
+      const distWasm = join(
+        projectDir,
+        'dist',
+        'wasi-debug-verify.wasm32-wasip1.wasm',
+      )
+      const distDebugWasm = join(
+        projectDir,
+        'dist',
+        'wasi-debug-verify.wasm32-wasip1.debug.wasm',
+      )
+      t.true(existsSync(distWasm))
+      t.true(existsSync(distDebugWasm))
+      await t.notThrowsAsync(() => verifyWasiReactor(distDebugWasm))
+
+      // A module exporting both _initialize and _start fails verification and
+      // cleans up staged outputs without overwriting the previous valid files
+      await writeFile(
+        srcWasmPath,
+        buildSyntheticWasiWasm({
+          memoryMinPages: 32,
+          stackPointer: 1_048_576,
+          exportInitialize: true,
+          exportStart: true,
+        }),
+      )
+      const err = await t.throwsAsync(async () => {
+        await (
+          await shim.run({
+            target,
+            targetDir,
+            cannedMetadata: true,
+            binaryOnly: true,
+          })
+        ).task
+      })
+      t.regex(
+        String((err?.cause as Error | undefined)?.message ?? ''),
+        /exports _start/,
+      )
+    } finally {
+      if (originalStackSize === undefined) {
+        delete process.env.NAPI_WASI_STACK_SIZE
+      } else {
+        process.env.NAPI_WASI_STACK_SIZE = originalStackSize
+      }
+      shim.restoreEnv()
+    }
+  },
+)
+
+posixOnly(
+  'binaryOnly emits only binary artifacts and preserves existing JS, DTS, and WASI loader files untouched',
+  async (t) => {
+    const { projectDir } = t.context
+    const target = 'x86_64-unknown-linux-gnu'
+    const shim = await setupRecordingCargoProject(
+      t,
+      'binary_only_crate',
+      'binary-only-crate',
+    )
+
+    // Add a local offline `napi-derive` path dependency with `type-def` enabled
+    // so `enableTypeDef` is genuinely active for non-`binaryOnly` builds and
+    // suppressing `NAPI_TYPE_DEF_TMP_FOLDER` under `binaryOnly` is load-bearing.
+    const deriveStubDir = join(projectDir, 'napi-derive-stub')
+    await mkdir(join(deriveStubDir, 'src'), { recursive: true })
+    await writeFile(
+      join(deriveStubDir, 'Cargo.toml'),
+      `[package]
+name = "napi-derive"
+version = "3.0.0"
+edition = "2021"
+
+[features]
+default = ["type-def"]
+type-def = []
+`,
+    )
+    await writeFile(join(deriveStubDir, 'src', 'lib.rs'), '')
+    const cargoTomlPath = join(projectDir, 'Cargo.toml')
+    await writeFile(
+      cargoTomlPath,
+      `${await readFile(cargoTomlPath, 'utf8')}
+[dependencies]
+napi-derive = { path = "napi-derive-stub" }
+`,
+    )
+
+    const cliRequire = createRequire(import.meta.url)
+    const emnapiVersion: string = cliRequire('emnapi/package.json').version
+    for (const pkg of ['@emnapi/core', '@emnapi/runtime']) {
+      const pkgDir = join(projectDir, 'node_modules', pkg)
+      await mkdir(pkgDir, { recursive: true })
+      await writeFile(
+        join(pkgDir, 'package.json'),
+        JSON.stringify({ name: pkg, version: emnapiVersion }),
+      )
+    }
+
+    await writeFile(
+      join(projectDir, 'package.json'),
+      JSON.stringify({
+        name: 'binary-only-crate',
+        version: '0.1.0',
+        napi: {
+          binaryName: 'binary-only-crate',
+          targets: [target, 'wasm32-wasip1-threads', 'wasm32-wasip1'],
+        },
+      }),
+    )
+
+    const distDir = join(projectDir, 'dist')
+    await mkdir(distDir, { recursive: true })
+
+    const targetDir = join(projectDir, 'target')
+    const nativeArtifactDir = join(targetDir, target, 'release')
+    await mkdir(nativeArtifactDir, { recursive: true })
+    await writeFile(
+      join(nativeArtifactDir, 'libbinary_only_crate.so'),
+      'fake native binary',
+    )
+
+    const wasiTarget = 'wasm32-wasip1'
+    const wasiArtifactDir = join(targetDir, wasiTarget, 'release')
+    await mkdir(wasiArtifactDir, { recursive: true })
+    await writeFile(
+      join(wasiArtifactDir, 'binary_only_crate.wasm'),
+      buildSyntheticWasiWasm({
+        memoryMinPages: 32,
+        stackPointer: 1_048_576,
+      }),
+    )
+
+    const preservedFiles = new Map<string, string>([
+      ['binding.cjs', '// sentinel root binding.cjs\n'],
+      ['binding.d.cts', '// sentinel root binding.d.cts\n'],
+      ['browser.js', '// sentinel browser.js\n'],
+      [
+        'binary-only-crate.wasi.cjs',
+        '// napi-rs-artifact-metadata:{"version":2,"rootEntry":"binding.cjs","exports":["foo"],"managedRootEntries":["browser.js","binding.cjs"]}\n// sentinel wasi.cjs\n',
+      ],
+      ['binary-only-crate.wasi.d.cts', '// sentinel wasi.d.cts\n'],
+      ['binary-only-crate.wasi-browser.js', '// sentinel wasi-browser.js\n'],
+      ['wasi-worker.mjs', '// sentinel wasi-worker.mjs\n'],
+      ['wasi-worker-browser.mjs', '// sentinel wasi-worker-browser.mjs\n'],
+      [
+        'binary-only-crate.wasip1.cjs',
+        '// napi-rs-artifact-metadata:{"version":2,"rootEntry":"binding.cjs","exports":["foo"],"managedRootEntries":["browser.js","binding.cjs"]}\n// sentinel wasip1.cjs\n',
+      ],
+      ['binary-only-crate.wasip1.d.cts', '// sentinel wasip1.d.cts\n'],
+      [
+        'binary-only-crate.wasip1-browser.js',
+        '// sentinel wasip1-browser.js\n',
+      ],
+      [
+        'binary-only-crate.wasip1-deferred.js',
+        '// sentinel wasip1-deferred.js\n',
+      ],
+      [
+        'binary-only-crate.wasip1-deferred.d.ts',
+        '// sentinel wasip1-deferred.d.ts\n',
+      ],
+    ])
+
+    const originalTypeDefFolder = process.env.NAPI_TYPE_DEF_TMP_FOLDER
+    const originalEnvSentinel = process.env.NAPI_BINARY_ONLY_ENV_SENTINEL
+    const originalStackSize = process.env.NAPI_WASI_STACK_SIZE
+
+    try {
+      delete process.env.NAPI_WASI_STACK_SIZE
+
+      // 0. Baseline non-binaryOnly build proves `enableTypeDef` is active for
+      //    this fixture and passes `NAPI_TYPE_DEF_TMP_FOLDER` to Cargo.
+      await (
+        await shim.run({
+          target,
+          targetDir,
+          jsBinding: 'binding.cjs',
+          dts: 'binding.d.cts',
+          cannedMetadata: true,
+        })
+      ).task
+      const baselineCalls = (await readRecordedCargoCalls(shim.argsDir))
+        .buildCalls
+      t.is(baselineCalls.length, 1)
+      t.regex(baselineCalls[0].env, /^NAPI_TYPE_DEF_TMP_FOLDER=.+/m)
+
+      for (const [name, content] of preservedFiles) {
+        await writeFile(join(distDir, name), content)
+      }
+
+      // Replace the source native artifact bytes after the baseline build so
+      // step 1 proves `--binary-only` actually publishes the fresh binary.
+      await writeFile(
+        join(nativeArtifactDir, 'libbinary_only_crate.so'),
+        'updated native binary',
+      )
+
+      // Keep both env vars active across `await task` (unlike `shim.run({ env })`,
+      // which restores before `task` spawns Cargo) so we prove the parent env is
+      // live at Cargo spawn time while `NAPI_TYPE_DEF_TMP_FOLDER` is stripped.
+      process.env.NAPI_TYPE_DEF_TMP_FOLDER = join(
+        projectDir,
+        'inherited-type-def',
+      )
+      process.env.NAPI_BINARY_ONLY_ENV_SENTINEL = 'active'
+
+      // 1. Native binary-only build
+      const nativeOutputs = await (
+        await shim.run({
+          target,
+          targetDir,
+          binaryOnly: true,
+          jsBinding: 'binding.cjs',
+          dts: 'binding.d.cts',
+        })
+      ).task
+      const nativeDest = join(distDir, 'binary-only-crate.linux-x64-gnu.node')
+      t.deepEqual(nativeOutputs, [{ kind: 'node', path: nativeDest }])
+      t.is(await readFile(nativeDest, 'utf8'), 'updated native binary')
+
+      // 2. WASI binary-only build
+      const wasiOutputs = await (
+        await shim.run({
+          target: wasiTarget,
+          targetDir,
+          binaryOnly: true,
+          jsBinding: 'binding.cjs',
+          dts: 'binding.d.cts',
+        })
+      ).task
+      const wasiDest = join(distDir, 'binary-only-crate.wasm32-wasip1.wasm')
+      const wasiDebugDest = join(
+        distDir,
+        'binary-only-crate.wasm32-wasip1.debug.wasm',
+      )
+      t.deepEqual(wasiOutputs, [{ kind: 'wasm', path: wasiDest }])
+      t.true(existsSync(wasiDest))
+      t.true(existsSync(wasiDebugDest))
+
+      // Every pre-existing JS/DTS/WASI loader file must remain completely untouched
+      for (const [name, expectedContent] of preservedFiles) {
+        t.is(
+          await readFile(join(distDir, name), 'utf8'),
+          expectedContent,
+          `${name} must remain untouched under --binary-only`,
+        )
+      }
+
+      // Cargo must not receive NAPI_TYPE_DEF_TMP_FOLDER under --binary-only
+      // even when the parent environment defines it.
+      const { buildCalls } = await readRecordedCargoCalls(shim.argsDir)
+      t.is(buildCalls.length, 3)
+      for (const call of buildCalls.slice(1)) {
+        t.regex(call.env, /^NAPI_BINARY_ONLY_ENV_SENTINEL=active$/m)
+        t.notRegex(call.env, /^NAPI_TYPE_DEF_TMP_FOLDER=/m)
+      }
+
+      // 3. A subsequent --binary-only WASI fallback (when wasm-tools fails on a
+      //    valid reactor with malformed DWARF) must retire the previous
+      //    .debug.wasm atomically while keeping JS/DTS/WASI loaders untouched.
+      const fallbackReactor = buildSyntheticWasiWasm({
+        memoryMinPages: 32,
+        stackPointer: 1_048_576,
+        customSections: [{ name: '.debug_info', payload: [0xff, 0xff] }],
+      })
+      await writeFile(
+        join(wasiArtifactDir, 'binary_only_crate.wasm'),
+        fallbackReactor,
+      )
+      const fallbackOutputs = await (
+        await shim.run({
+          target: wasiTarget,
+          targetDir,
+          binaryOnly: true,
+          jsBinding: 'binding.cjs',
+          dts: 'binding.d.cts',
+        })
+      ).task
+      t.deepEqual(fallbackOutputs, [{ kind: 'wasm', path: wasiDest }])
+      t.deepEqual(await readFile(wasiDest), Buffer.from(fallbackReactor))
+      t.false(
+        existsSync(wasiDebugDest),
+        'stale .debug.wasm must be retired when fallback emits raw .wasm only',
+      )
+      for (const [name, expectedContent] of preservedFiles) {
+        t.is(
+          await readFile(join(distDir, name), 'utf8'),
+          expectedContent,
+          `${name} must remain untouched after --binary-only WASI fallback`,
+        )
+      }
+      const afterFallbackCalls = (await readRecordedCargoCalls(shim.argsDir))
+        .buildCalls
+      t.is(afterFallbackCalls.length, 4)
+      t.regex(
+        afterFallbackCalls[3].env,
+        /^NAPI_BINARY_ONLY_ENV_SENTINEL=active$/m,
+      )
+      t.notRegex(afterFallbackCalls[3].env, /^NAPI_TYPE_DEF_TMP_FOLDER=/m)
+    } finally {
+      if (originalStackSize === undefined) {
+        delete process.env.NAPI_WASI_STACK_SIZE
+      } else {
+        process.env.NAPI_WASI_STACK_SIZE = originalStackSize
+      }
+      if (originalTypeDefFolder === undefined) {
+        delete process.env.NAPI_TYPE_DEF_TMP_FOLDER
+      } else {
+        process.env.NAPI_TYPE_DEF_TMP_FOLDER = originalTypeDefFolder
+      }
+      if (originalEnvSentinel === undefined) {
+        delete process.env.NAPI_BINARY_ONLY_ENV_SENTINEL
+      } else {
+        process.env.NAPI_BINARY_ONLY_ENV_SENTINEL = originalEnvSentinel
       }
       shim.restoreEnv()
     }

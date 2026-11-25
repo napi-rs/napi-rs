@@ -8,7 +8,11 @@ import ava, { type ExecutionContext } from 'ava'
 import { parseSync } from 'oxc-parser'
 import ts from 'typescript'
 
-import { createCjsBinding, createEsmBinding } from '../templates/js-binding.js'
+import {
+  createCjsBinding,
+  createEsmBinding,
+  stripSemverBuildMetadata,
+} from '../templates/js-binding.js'
 import {
   createWasiBinding,
   createWasiBrowserBinding,
@@ -322,6 +326,15 @@ const cjsBindingCases: Array<{ name: string; code: string }> = [
   {
     name: 'with version check',
     code: createCjsBinding('test', '@scope/test', ['sum', 'sub'], '1.0.0'),
+  },
+  {
+    name: 'with semver build metadata',
+    code: createCjsBinding(
+      'test',
+      '@scope/test',
+      ['sum', 'sub'],
+      '1.2.3-rc.1+commit.abc',
+    ),
   },
 ]
 
@@ -4847,4 +4860,165 @@ try {
     t.false(code.includes('reconcileThreadPool'))
     t.false(code.includes('__wrapWasiConfigureAsyncRuntime'))
   }
+})
+
+test('stripSemverBuildMetadata ignores SemVer 2.0 build metadata', (t) => {
+  t.is(stripSemverBuildMetadata('1.2.3-rc.1+commit.abc'), '1.2.3-rc.1')
+  t.is(stripSemverBuildMetadata('1.2.3+20130313144700'), '1.2.3')
+  t.is(stripSemverBuildMetadata('1.2.3-rc.1'), '1.2.3-rc.1')
+  t.is(stripSemverBuildMetadata('1.2.3'), '1.2.3')
+  t.is(stripSemverBuildMetadata('+leading'), '+leading')
+})
+
+test('generated loaders ignore semver +build metadata in NAPI_RS_ENFORCE_VERSION_CHECK', (t) => {
+  const runNativeLoader = (
+    bakedVersion: string,
+    bindingPackageVersion: string,
+    env: Record<string, string> = { NAPI_RS_ENFORCE_VERSION_CHECK: '1' },
+  ) => {
+    const code = createCjsBinding(
+      'test',
+      '@scope/test',
+      ['sum'],
+      bakedVersion,
+      ['wasm32-wasip1'],
+    )
+    assertValidJS(t, code, `native ${bakedVersion} vs ${bindingPackageVersion}`)
+    const binding = { sum: () => 42 }
+    const fakeRequire = Object.assign(
+      (id: string) => {
+        if (id === 'fs') {
+          return {
+            readFileSync: () => {
+              throw new Error('ENOENT')
+            },
+          }
+        }
+        if (id === '@scope/test-darwin-arm64') {
+          return binding
+        }
+        if (id === '@scope/test-darwin-arm64/package.json') {
+          return { version: bindingPackageVersion }
+        }
+        if (id === '@scope/test-wasm32-wasip1') {
+          return binding
+        }
+        if (id === '@scope/test-wasm32-wasip1/package.json') {
+          return { version: bindingPackageVersion }
+        }
+        const error = new Error(`Cannot find module '${id}'`) as Error & {
+          code: string
+        }
+        error.code = 'MODULE_NOT_FOUND'
+        throw error
+      },
+      {
+        resolve: (id: string) => {
+          if (
+            id === '@scope/test-wasm32-wasip1' ||
+            id === '@scope/test-wasm32-wasip1/package.json'
+          ) {
+            return id
+          }
+          const error = new Error(`Cannot find module '${id}'`) as Error & {
+            code: string
+          }
+          error.code = 'MODULE_NOT_FOUND'
+          throw error
+        },
+      },
+    )
+    const mod = { exports: {} as Record<string, unknown> }
+    new Function('require', 'module', 'exports', 'process', code)(
+      fakeRequire,
+      mod,
+      mod.exports,
+      { platform: 'darwin', arch: 'arm64', env },
+    )
+    return mod.exports
+  }
+
+  // Native: build metadata on expected, installed, or both matches
+  t.is(
+    (
+      runNativeLoader('1.2.3-rc.1+commit.abc', '1.2.3-rc.1').sum as () => number
+    )(),
+    42,
+  )
+  t.is(
+    (
+      runNativeLoader('1.2.3-rc.1', '1.2.3-rc.1+commit.def').sum as () => number
+    )(),
+    42,
+  )
+  t.is(
+    (
+      runNativeLoader('1.2.3-rc.1+commit.abc', '1.2.3-rc.1+commit.def')
+        .sum as () => number
+    )(),
+    42,
+  )
+  // Native: real prerelease mismatch still throws (check the error chain)
+  const nativeMismatch = t.throws(() =>
+    runNativeLoader('1.2.3-rc.1+commit.abc', '1.2.3-rc.2'),
+  )
+  const collectCauseMessages = (err: unknown): string[] => {
+    const messages: string[] = []
+    let current: unknown = err
+    while (current instanceof Error) {
+      messages.push(current.message)
+      current = (current as Error & { cause?: unknown }).cause
+    }
+    return messages
+  }
+  t.true(
+    collectCauseMessages(nativeMismatch).some((message) =>
+      /Native binding package version mismatch, expected 1\.2\.3-rc\.1 but got 1\.2\.3-rc\.2/.test(
+        message,
+      ),
+    ),
+  )
+
+  // WASI fallback: build metadata matches, real mismatch throws
+  const wasiEnv = {
+    NAPI_RS_ENFORCE_VERSION_CHECK: '1',
+    NAPI_RS_FORCE_WASI: 'error',
+  }
+  t.is(
+    (
+      runNativeLoader('1.2.3-rc.1+commit.abc', '1.2.3-rc.1', wasiEnv)
+        .sum as () => number
+    )(),
+    42,
+  )
+  t.is(
+    (
+      runNativeLoader('1.2.3-rc.1', '1.2.3-rc.1+commit.def', wasiEnv)
+        .sum as () => number
+    )(),
+    42,
+  )
+  const wasiMismatch = t.throws(() =>
+    runNativeLoader('1.2.3-rc.1+commit.abc', '1.2.3-rc.2', wasiEnv),
+  )
+  t.regex(
+    String((wasiMismatch?.cause as Error | undefined)?.message ?? ''),
+    /WASI binding package version mismatch, expected 1\.2\.3-rc\.1 but got 1\.2\.3-rc\.2/,
+  )
+
+  // ESM loader bakes stripped version and includes the runtime strip helper
+  const esm = createEsmBinding(
+    'test',
+    '@scope/test',
+    ['sum'],
+    '1.2.3-rc.1+commit.abc',
+    ['wasm32-wasip1'],
+  )
+  assertValidJS(t, esm, 'esm with build metadata')
+  t.false(esm.includes('+commit.abc'))
+  t.true(
+    esm.includes(
+      "__napiStripBuildMetadata(bindingPackageVersion) !== '1.2.3-rc.1'",
+    ),
+  )
 })

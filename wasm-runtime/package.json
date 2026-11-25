@@ -26,11 +26,13 @@
     "runtime.js",
     "fs-proxy.js",
     "dist/*.cjs",
-    "dist/*.js"
+    "dist/*.js",
+    "dist/fs.packages.json",
+    "dist/THIRD-PARTY-LICENSE"
   ],
   "devDependencies": {
-    "@emnapi/core": "2.0.0-beta.3",
-    "@emnapi/runtime": "2.0.0-beta.3",
+    "@emnapi/core": "2.0.0-beta.4",
+    "@emnapi/runtime": "2.0.0-beta.4",
     "buffer": "^6.0.3",
     "events": "^3.3.0",
     "memfs": "^4.64.0",
@@ -46,8 +48,8 @@
     "@tybys/wasm-util": "^0.10.3"
   },
   "peerDependencies": {
-    "@emnapi/core": "^1.7.1 || 2.0.0-beta.2 || 2.0.0-beta.3",
-    "@emnapi/runtime": "^1.7.1 || 2.0.0-beta.2 || 2.0.0-beta.3"
+    "@emnapi/core": "^1.7.1 || 2.0.0-beta.2 || 2.0.0-beta.3 || 2.0.0-beta.4",
+    "@emnapi/runtime": "^1.7.1 || 2.0.0-beta.2 || 2.0.0-beta.3 || 2.0.0-beta.4"
   },
   "scripts": {
     "build": "rolldown -c",
@@ -65,6 +67,8 @@
     },
     "./fs": {
       "import": "./dist/fs.js"
-    }
+    },
+    "./fs.packages.json": "./dist/fs.packages.json",
+    "./package.json": "./package.json"
   }
 }

@@ -3,13 +3,16 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   rm,
   rmdir,
   writeFile,
 } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { basename, isAbsolute, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+
+import { prerelease, satisfies } from 'semver'
 
 const require = createRequire(import.meta.url)
 const directBufferDependency = '^6.0.3'
@@ -110,6 +113,172 @@ async function getLatestPackageVersion(packageName: string) {
   }
 
   return latestVersion.trim()
+}
+
+export interface ResolvedRuntimePackage {
+  version: string
+  fromLocal: boolean
+}
+
+interface LocalPackageManifest {
+  manifestPath: string
+  version: string
+  peerDependencies?: Record<string, unknown>
+}
+
+async function readLocalPackageManifest(
+  manifestPath: string,
+  expectedPackageName: string,
+): Promise<LocalPackageManifest | undefined> {
+  try {
+    const manifest = asJsonRecord(
+      JSON.parse(await readFile(manifestPath, 'utf8')),
+    )
+    if (
+      manifest &&
+      manifest.name === expectedPackageName &&
+      typeof manifest.version === 'string' &&
+      manifest.version.trim().length > 0
+    ) {
+      return {
+        manifestPath: await realpath(manifestPath).catch(() =>
+          resolve(manifestPath),
+        ),
+        version: manifest.version.trim(),
+        peerDependencies: asJsonRecord(manifest.peerDependencies),
+      }
+    }
+  } catch {
+    return undefined
+  }
+  return undefined
+}
+
+async function resolveLocalPackageManifestFromAnchor(
+  packageName: string,
+  anchorPath: string,
+): Promise<LocalPackageManifest | undefined> {
+  const projectRequire = createRequire(anchorPath)
+  try {
+    const manifestPath = projectRequire.resolve(`${packageName}/package.json`)
+    return await readLocalPackageManifest(manifestPath, packageName)
+  } catch (error) {
+    if (
+      (error as NodeJS.ErrnoException).code === 'ERR_PACKAGE_PATH_NOT_EXPORTED'
+    ) {
+      try {
+        const entryPath = projectRequire.resolve(packageName)
+        let dir = dirname(entryPath)
+        while (true) {
+          const manifest = await readLocalPackageManifest(
+            join(dir, 'package.json'),
+            packageName,
+          )
+          if (manifest) {
+            return manifest
+          }
+          const parent = dirname(dir)
+          if (parent === dir) {
+            break
+          }
+          dir = parent
+        }
+      } catch {
+        // Package could not be resolved from this anchor; try next or fall back.
+      }
+    }
+  }
+  return undefined
+}
+
+async function resolveLocalPackageVersion(
+  packageName: string,
+  anchorPaths: string[],
+  requiredPeers?: Record<string, string>,
+): Promise<string | undefined> {
+  const seenAnchors = new Set<string>()
+  const seenManifestPaths = new Set<string>()
+  for (const anchorPath of anchorPaths) {
+    const normalizedAnchor = resolve(anchorPath)
+    if (seenAnchors.has(normalizedAnchor)) {
+      continue
+    }
+    seenAnchors.add(normalizedAnchor)
+    const manifest = await resolveLocalPackageManifestFromAnchor(
+      packageName,
+      normalizedAnchor,
+    )
+    if (!manifest || seenManifestPaths.has(manifest.manifestPath)) {
+      continue
+    }
+    seenManifestPaths.add(manifest.manifestPath)
+    if (requiredPeers) {
+      let incompatible = false
+      for (const [peerName, expectedVersion] of Object.entries(requiredPeers)) {
+        const peerRange = manifest.peerDependencies?.[peerName]
+        if (typeof peerRange !== 'string' || peerRange.trim().length === 0) {
+          debug.warn(
+            `Skipping local ${packageName}@${manifest.version}: missing peerDependencies[${JSON.stringify(peerName)}] (expected ${expectedVersion}); falling back to npm registry.`,
+          )
+          incompatible = true
+          break
+        }
+        if (!satisfies(expectedVersion, peerRange)) {
+          debug.warn(
+            `Skipping local ${packageName}@${manifest.version}: peerDependencies[${JSON.stringify(peerName)}] (${JSON.stringify(peerRange)}) does not satisfy ${expectedVersion}; falling back to npm registry.`,
+          )
+          incompatible = true
+          break
+        }
+      }
+      if (incompatible) {
+        continue
+      }
+    }
+    return manifest.version
+  }
+  return undefined
+}
+
+async function resolveRuntimePackageVersion(
+  packageName: string,
+  anchorPaths: string[],
+  requiredPeers?: Record<string, string>,
+): Promise<ResolvedRuntimePackage> {
+  const localVersion = await resolveLocalPackageVersion(
+    packageName,
+    anchorPaths,
+    requiredPeers,
+  )
+  if (localVersion) {
+    debug('Resolved %s@%s locally', packageName, localVersion)
+    return { version: localVersion, fromLocal: true }
+  }
+  const latestVersion = await getLatestPackageVersion(packageName)
+  return { version: latestVersion, fromLocal: false }
+}
+
+/**
+ * Format the `@napi-rs/wasm-runtime` dependency range for generated WASI
+ * packages.
+ *
+ * When resolved from the project's local dependencies alongside a prerelease
+ * `emnapi` (or when `@napi-rs/wasm-runtime` itself is a prerelease), pin the
+ * exact version so generated packages do not drift to a newer patch targeting
+ * a different emnapi prerelease. Otherwise keep the resolved minor (`~x.y.z`).
+ */
+export function formatWasmRuntimeDependencyVersion(
+  resolved: ResolvedRuntimePackage,
+  emnapiVersion: string,
+): string {
+  if (
+    resolved.fromLocal &&
+    (prerelease(emnapiVersion) !== null ||
+      prerelease(resolved.version) !== null)
+  ) {
+    return resolved.version
+  }
+  return `~${resolved.version}`
 }
 
 function assertSafeManagedPathSegment(value: string, label: string) {
@@ -449,12 +618,29 @@ async function createNpmDirsUnlocked(
     )
   ).flat()
   const hasWasmTarget = targets.some((target) => target.arch === 'wasm32')
-  const [wasmRuntimeVersion, asyncRuntimeVersion] = await Promise.all([
+  const emnapiVersion: string | undefined = hasWasmTarget
+    ? require('emnapi/package.json').version
+    : undefined
+  const projectAnchorPaths = [
+    packageJsonPath,
+    join(resolve(options.cwd), 'package.json'),
+  ]
+  const [wasmRuntimeResolution, asyncRuntimeResolution] = await Promise.all([
     hasWasmTarget
-      ? getLatestPackageVersion(WASM_RUNTIME_PACKAGE_NAME)
+      ? resolveRuntimePackageVersion(
+          WASM_RUNTIME_PACKAGE_NAME,
+          projectAnchorPaths,
+          {
+            '@emnapi/core': emnapiVersion!,
+            '@emnapi/runtime': emnapiVersion!,
+          },
+        )
       : undefined,
     hasWasmTarget && wasm?.asyncRuntime === true
-      ? getLatestPackageVersion(ASYNC_RUNTIME_PACKAGE_NAME)
+      ? resolveRuntimePackageVersion(
+          ASYNC_RUNTIME_PACKAGE_NAME,
+          projectAnchorPaths,
+        )
       : undefined,
   ])
   const pendingWrites: PendingMetadataWrite[] = []
@@ -559,17 +745,20 @@ async function createNpmDirsUnlocked(
           ? restrictWasiNodeEngine(scopedPackageJson.engines.node)
           : MINIMUM_WASI_NODE_VERSION,
       }
-      const emnapiVersion = require('emnapi/package.json').version
       scopedPackageJson.dependencies = {
         // Runtime minor releases can target a different emnapi generation.
-        // Keep generated packages on the resolved minor while allowing fixes.
-        '@napi-rs/wasm-runtime': `~${wasmRuntimeVersion}`,
-        '@emnapi/core': emnapiVersion,
-        '@emnapi/runtime': emnapiVersion,
+        // Keep generated packages on the resolved minor while allowing fixes,
+        // or pin exact when resolved locally alongside a prerelease emnapi.
+        '@napi-rs/wasm-runtime': formatWasmRuntimeDependencyVersion(
+          wasmRuntimeResolution!,
+          emnapiVersion!,
+        ),
+        '@emnapi/core': emnapiVersion!,
+        '@emnapi/runtime': emnapiVersion!,
         // The compatibility axis is the host contract version (4), which is
         // stable across a semver major, so a caret range is correct here.
-        ...(asyncRuntimeVersion
-          ? { '@napi-rs/async-runtime': `^${asyncRuntimeVersion}` }
+        ...(asyncRuntimeResolution
+          ? { '@napi-rs/async-runtime': `^${asyncRuntimeResolution.version}` }
           : {}),
         ...(wasm?.browser?.buffer === true &&
         (wasm.browser.fs !== true || !wasiTargetHasThreads(target))

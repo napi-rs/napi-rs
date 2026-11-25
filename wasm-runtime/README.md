@@ -9,14 +9,14 @@ Use matching versions of `@emnapi/core` and `@emnapi/runtime`:
 - v1: `^1.7.1`. Core includes async work and threadsafe functions and ignores the
   plugins option. Loading this package does not resolve the v2-only
   `@emnapi/core/plugins` export.
-- v2: the peer range is exactly `2.0.0-beta.2` or `2.0.0-beta.3`, and this
-  package bundles the async-work and TSFN plugins from `2.0.0-beta.3`. They
-  depend on private core context fields, which are the same in both betas
-  (`2.0.0-beta.3` changed only the TSFN release order). `2.0.0-beta.1` renamed
-  the context field `napiModule` to `addonModule`; the bundled plugins accept
-  both names, so bindings that pin a 2.0.0 alpha keep loading. A later
-  prerelease that changes the context again needs a new release of this
-  package.
+- v2: the peer range is exactly `2.0.0-beta.2`, `2.0.0-beta.3`, or
+  `2.0.0-beta.4`, and this package bundles the async-work and TSFN plugins from
+  `2.0.0-beta.4`. They depend on private core context fields, which are the
+  same across these betas (`2.0.0-beta.3` changed only the TSFN release order,
+  and `2.0.0-beta.4` left the plugins unchanged). `2.0.0-beta.1` renamed the
+  context field `napiModule` to `addonModule`; the bundled plugins accept both
+  names, so bindings that pin a 2.0.0 alpha keep loading. A later prerelease
+  that changes the context again needs a new release of this package.
 
 The v2 peer range stays narrow on purpose. With an open range, npm can hoist a
 binding's 2.0.0 alpha core next to this package, and then v1 bindings that

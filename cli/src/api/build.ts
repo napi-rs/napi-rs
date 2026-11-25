@@ -2399,9 +2399,15 @@ class Builder {
       }),
     )
     this.enableTypeDef =
-      Boolean(this.cdyLibName) && this.napiDeriveDependentCrates.length > 0
+      !this.options.binaryOnly &&
+      Boolean(this.cdyLibName) &&
+      this.napiDeriveDependentCrates.length > 0
 
-    if (Boolean(this.cdyLibName) && !this.enableTypeDef) {
+    if (
+      !this.options.binaryOnly &&
+      Boolean(this.cdyLibName) &&
+      !this.enableTypeDef
+    ) {
       const requirementWarning =
         '`napi-derive` crate is not used or `type-def` feature is not enabled for `napi-derive` crate'
       debug.warn(
@@ -3610,9 +3616,10 @@ class Builder {
       })
     }
 
-    const stalePaths = this.options.watch
-      ? new Set<string>()
-      : await this.collectStaleBuildOutputPaths()
+    const stalePaths =
+      this.options.watch || this.options.binaryOnly
+        ? new Set<string>()
+        : await this.collectStaleBuildOutputPaths()
     const stagingDir = await mkdtempAsync(
       join(dirname(finalOutputDir), `.${basename(finalOutputDir)}.napi-stage-`),
     )
@@ -3621,10 +3628,11 @@ class Builder {
     this.outputDir = stagingDir
 
     try {
-      const wasmBinaryName = await this.copyArtifact()
+      const retiredArtifactPaths = new Set<string>()
+      const wasmBinaryName = await this.copyArtifact(retiredArtifactPaths)
 
       // only for cdylib
-      if (this.cdyLibName) {
+      if (this.cdyLibName && !this.options.binaryOnly) {
         const idents = await this.generateTypeDef()
         const jsOutput = await this.writeJsBinding(idents)
         const wasmBindingsOutput = await this.writeWasiBinding(
@@ -3655,16 +3663,15 @@ class Builder {
       const writtenDestinations = new Set(
         writes.map(({ destination }) => destination),
       )
+      const removals = [
+        ...new Set([...stalePaths, ...retiredArtifactPaths]),
+      ].filter((path) => !writtenDestinations.has(path))
       const transactionRoot = commonPathAncestor([
         finalOutputDir,
         ...writtenDestinations,
-        ...stalePaths,
+        ...removals,
       ])
-      await commitFileSystemTransaction(
-        transactionRoot,
-        writes,
-        [...stalePaths].filter((path) => !writtenDestinations.has(path)),
-      )
+      await commitFileSystemTransaction(transactionRoot, writes, removals)
 
       const committedOutputs = this.outputs
         .slice(outputStart)
@@ -3690,7 +3697,7 @@ class Builder {
     }
   }
 
-  private async copyArtifact() {
+  private async copyArtifact(retiredArtifactPaths: Set<string>) {
     const [srcName, destName, wasmBinaryName] = this.getArtifactNames()
     if (!srcName || !destName) {
       return
@@ -3714,6 +3721,7 @@ class Builder {
       debug('  %i', dest)
       if (isWasm) {
         const { ModuleConfig } = await import('@napi-rs/wasm-tools')
+        let hasDebugArtifact = false
         debug('Generate debug wasm module')
         try {
           const debugWasmBinary = removeWasmCustomSection(
@@ -3728,6 +3736,7 @@ class Builder {
             'build_id',
           )
           await writeFileAtomic(debugDest!, debugWasmBinary)
+          hasDebugArtifact = true
           debug('Generate release wasm module')
           const releaseWasmBinary = removeWasmCustomSection(
             new ModuleConfig()
@@ -3748,8 +3757,17 @@ class Builder {
             `Failed to generate debug wasm module: ${(e as any).message ?? e}`,
           )
           await this.unlinkIfExists(debugDest!)
+          hasDebugArtifact = false
           await copyFileAtomic(src, dest)
           artifactReplaced = true
+          // Retire any previous `.debug.wasm` from the final output directory
+          // once this fallback `.wasm` passes verification and commits.
+          retiredArtifactPaths.add(
+            join(
+              this.finalOutputDir,
+              destName.replace(/\.wasm$/, '.debug.wasm'),
+            ),
+          )
         }
         if (this.target.platform === 'wasi') {
           const hasThreads = wasiTargetHasThreads(this.target)
@@ -3766,13 +3784,17 @@ class Builder {
             this.config.wasm?.threadlessInitialMemory !== undefined
               ? 'napi.wasm.threadlessInitialMemory'
               : 'napi.wasm.initialMemory'
-          await verifyWasiReactor(dest, {
+          const verifyOptions: VerifyWasiReactorOptions = {
             expectedStackSizeBytes: resolvedStack.stackSizeBytes,
             stackSizeSource: resolvedStack.source,
             initialMemoryPages: resolvedMemory.initialMemory,
             initialMemorySource,
             maximumMemoryPages: resolvedMemory.maximumMemory,
-          })
+          }
+          await verifyWasiReactor(dest, verifyOptions)
+          if (hasDebugArtifact && debugDest) {
+            await verifyWasiReactor(debugDest, verifyOptions)
+          }
         }
       } else {
         await copyFileAtomic(src, dest)
@@ -4604,13 +4626,24 @@ export async function verifyWasiReactor(
       cause: error,
     })
   }
-  if (
-    !WebAssembly.Module.exports(module).some(
-      ({ name, kind }) => name === '_initialize' && kind === 'function',
+  const moduleExports = WebAssembly.Module.exports(module)
+  const hasInitialize = moduleExports.some(
+    ({ name, kind }) => name === '_initialize' && kind === 'function',
+  )
+  const hasStart = moduleExports.some(({ name }) => name === '_start')
+  if (!hasInitialize && hasStart) {
+    throw new Error(
+      `WASI artifact ${wasmPath} does not export _initialize and exports _start (command module instead of WASI reactor). Ensure napi-build can locate crt1-reactor.o for the selected Rust target.`,
     )
-  ) {
+  }
+  if (!hasInitialize) {
     throw new Error(
       `WASI artifact ${wasmPath} does not export _initialize. Ensure napi-build can locate crt1-reactor.o for the selected Rust target.`,
+    )
+  }
+  if (hasStart) {
+    throw new Error(
+      `WASI artifact ${wasmPath} exports _start. WASI addons must be linked as a reactor exporting _initialize without _start.`,
     )
   }
 

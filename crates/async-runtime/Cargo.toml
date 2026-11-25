@@ -12,7 +12,23 @@ version = "0.2.11"
 
 [features]
 default = ["napi"]
-napi = ["dep:napi", "dep:napi-derive"]
+napi = ["napi-backend", "napi-task-host", "napi-timer-host", "napi-js-config"]
+napi-backend = ["dep:napi", "dep:napi-derive"]
+# Exports contract version 4's task-host functions WITHOUT `registerTimerHost`
+# or `unregisterTimerHost`. Standard contract-v4 tooling requires all 7 exports:
+# `@napi-rs/cli`'s `napi.wasm.asyncRuntime` build check rejects missing timer
+# exports when generating WASI loaders with `type-def` metadata (and defers to
+# load-time checks without `type-def` or under `--binary-only`),
+# `@napi-rs/async-runtime`'s `installCurrentThreadHosts` throws
+# `BindingMismatchError`, and the deferred workerd loader's
+# `registerWorkerdTimerHost` throws `TypeError` when host timers are available.
+# Addons using standard loaders must pair `napi-task-host` with either
+# `napi-timer-host` (full JS timer relay) or `napi-timer-host-stub` (record-only
+# stub); enable `napi-task-host` alone only for custom/manual task-host wiring.
+napi-task-host = ["napi-backend"]
+napi-timer-host = ["napi-task-host"]
+napi-timer-host-stub = ["napi-task-host"]
+napi-js-config = ["napi-backend"]
 
 [dependencies]
 arc-swap = "1"
