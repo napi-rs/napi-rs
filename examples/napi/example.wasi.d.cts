@@ -126,6 +126,14 @@ export declare class Assets {
 }
 export type JsAssets = Assets
 
+export declare class AssignedTypedArraySlices {
+  constructor(u8Data: Array<number>, clampedData: Array<number>)
+  readU8(): Array<number>
+  readClamped(): Array<number>
+  readEmptyU8(): Array<number>
+  readEmptyClamped(): Array<number>
+}
+
 /**
  * This type implements JavaScript's async iterable protocol.
  * It can be used with `for await...of` loops.
@@ -308,6 +316,109 @@ export declare class DelayedCounter {
   /** Like the constructor, but every sleep is counted by `probe` */
   static withProbe(max: number, delayMs: number, probe: SleepOverlapProbe): DelayedCounter
   [globalThis.Symbol.asyncIterator](): globalThis.__NapiRsAsyncGenerator<DelayedCounter, number, string, undefined>
+}
+
+export declare class DisposableAlignedZst {
+  [globalThis.Symbol.dispose](): void
+  constructor()
+  static create(): DisposableAlignedZst
+  ping(): number
+}
+
+export declare class DisposableCustomFinalize {
+  [globalThis.Symbol.dispose](): void
+  constructor(id: number, value: number, failOnFinalize: boolean)
+  read(): number
+  withCallback(cb: () => void, returnErr: boolean): number
+}
+
+export declare class DisposableDefaultCtor {
+  id: number
+  count: number
+  constructor(id: number, count: number)
+  [globalThis.Symbol.dispose](): void
+}
+
+export declare class DisposableFieldHook {
+  readonly hookValue: number
+  [globalThis.Symbol.dispose](): void
+  constructor(id: number, value: number, cb: () => void)
+}
+
+export declare class DisposableNonDisposable {
+  value: number
+  constructor(id: number, value: number)
+  read(): number
+  tryAssignDisposableToThis(this: this, id: number): void
+  tryAssignDisposableToThisWithAttributes(this: this, id: number): void
+}
+
+export declare class DisposableRefHolder {
+  read(): number
+  cloneRef(): DisposableRefHolder
+  release(): void
+}
+
+export declare class DisposableResource {
+  value: number
+  [globalThis.Symbol.dispose](): void
+  constructor(id: number, value: number, payloadSize?: number | undefined | null)
+  static create(id: number, value: number): DisposableResource
+  /**
+   * Static `[Symbol.dispose]` lives on the constructor, so it does not conflict
+   * with `#[napi(disposable)]`'s prototype `[Symbol.dispose]`.
+   */
+  static [globalThis.Symbol.dispose](): number
+  read(): number
+  payloadLen(): number
+  increment(delta: number): number
+  get tag(): string
+  set tag(tag: string)
+  set payloadValue(payload: DisposableSetterPayload)
+  static readViaThisRef(this: DisposableResource): number
+  static bumpViaThisMut(this: DisposableResource, delta: number): number
+  readViaReference(): number
+  withRefAndHolder(cb: (arg: DisposableRefHolder) => void): number
+  withCallback(cb: () => void): number
+  withMutCallback(cb: () => void): number
+  readWithReturnHook(cb: () => unknown): number
+  readAsyncGated(gateId: number): Promise<number>
+  readInAsyncTask(gate: number): Promise<number>
+  createRefHolder(): DisposableRefHolder
+  createWeakHolder(): DisposableWeakHolder
+  createSharedHolder(): DisposableSharedHolder
+}
+
+export declare class DisposableSharedHolder {
+  read(): number
+  release(): void
+}
+
+export declare class DisposableSibling {
+  value: number
+  [globalThis.Symbol.dispose](): void
+  constructor(id: number, value: number)
+  read(): number
+}
+
+export declare class DisposableWeakHolder {
+  isAlive(): boolean
+  tryGetValue(): number | null
+  tryUpgrade(): boolean
+  tryToJs(): DisposableResource
+}
+
+export declare class DisposableWithLifetime {
+  [globalThis.Symbol.dispose](): void
+  constructor(id: number, innerId: number, value: number)
+  readInner(): number
+}
+
+export declare class DisposableZst {
+  [globalThis.Symbol.dispose](): void
+  constructor()
+  static create(): DisposableZst
+  ping(): number
 }
 
 export declare class Dog {
@@ -584,6 +695,14 @@ export declare class ReentrantBorrowOrderTest {
   replaceValuesFromThis(this: object): void
 }
 
+export declare class RenamedDisposable {
+  value: number
+  [globalThis.Symbol.dispose](): void
+  constructor(id: number, value: number)
+  read(): number
+}
+export type DisposableCustomJsName = RenamedDisposable
+
 export declare class RenamedForIssue3427 {
   constructor(value: number)
 }
@@ -814,6 +933,8 @@ export declare function argRefsSliceNow(data: Uint8Array): Promise<number>
 
 export declare function arrayBufferCopyFrom(data: Array<number>): ArrayBuffer
 
+export declare function arrayBufferCopyFromReadBack(data: Array<number>): Array<number>
+
 export declare function arrayBufferFromData(): ArrayBuffer
 
 export declare function arrayBufferFromExternal(): ArrayBuffer
@@ -1029,6 +1150,8 @@ export declare function buildThreadsafeFunctionFromFunction(callback: (arg0: num
 
 export declare function buildThreadsafeFunctionFromFunctionCalleeHandle(callback: () => void): void
 
+export declare function bumpDisposableMutRef(res: DisposableResource, delta: number): number
+
 export interface C {
   baz: number
 }
@@ -1216,6 +1339,8 @@ export declare function convertU32Array(input: Uint32Array): Array<number>
 
 export declare function createArraybuffer(): ArrayBuffer
 
+export declare function createArraybufferOfSize(size: number): ArrayBuffer
+
 export declare function createBigInt(): bigint
 
 export declare function createBigIntI64(): bigint
@@ -1231,6 +1356,12 @@ export declare function createClosureReadingExternal(): (arg: unknown) => number
  * deferred unsettled. Throws, and must not leave a rejection behind.
  */
 export declare function createDeferredThenFail(): void
+
+export declare function createDisposableAlignedZst(): DisposableAlignedZst
+
+export declare function createDisposableByValue(id: number, value: number): DisposableResource
+
+export declare function createDisposableZst(): DisposableZst
 
 export declare function createDuplicateExternalRef(size: number): number
 
@@ -1332,9 +1463,15 @@ export declare function createSymbolFor(desc: string): symbol
 
 export declare function createSymbolRef(desc: string): symbol
 
+export declare function createUint16ArraySliceOfSize(size: number): Uint16Array
+
+export declare function createUint8ArraySliceOfSize(size: number): Uint8Array
+
 export declare function createUint8ClampedArrayFromData(): Uint8ClampedArray
 
 export declare function createUint8ClampedArrayFromExternal(): Uint8ClampedArray
+
+export declare function createUint8ClampedSliceOfSize(size: number): Uint8ClampedArray
 
 export declare function createUseNullableStruct(): UseNullableStruct
 
@@ -1481,6 +1618,10 @@ export declare function describePromiseRejection(p: Promise<undefined>): Promise
  * pointer after input conversion.
  */
 export declare function detachReentrantBorrowOrderTestTarget(target: unknown): void
+
+export interface DisposableSetterPayload {
+  nextValue: number
+}
 
 /**
  * Counts the chunks read from a stream, swallowing (dropping) any read error.
@@ -1639,6 +1780,18 @@ export declare function getClassFromArray(arr: unknown[]): number | null
 
 export declare function getCwd(callback: (arg0: string) => void): void
 
+export declare function getDisposableAlignedZstDropCount(): number
+
+export declare function getDisposableDropCount(id: number): number
+
+export declare function getDisposableFinalizeCount(id: number): number
+
+export declare function getDisposableSharedViewDropCount(id: number): number
+
+export declare function getDisposableSharedViewDropObservation(id: number): Array<number> | null
+
+export declare function getDisposableZstDropCount(): number
+
 export declare function getEmptyBuffer(): Buffer
 
 export declare function getEmptyTypedArray(): Uint8Array
@@ -1705,6 +1858,8 @@ export declare function indexmapPassthrough(fixture: Record<string, number>): Re
 export declare function indexSetToJs(): Set<string>
 
 export declare function indexSetToRust(set: Set<string>): void
+
+export declare function intoInstanceDisposedInCallback(id: number, value: number, cb: (arg: object) => void): number
 
 export declare function intoUtf8(s: string): string
 
@@ -1942,6 +2097,8 @@ export declare function objectWrapWithA(obj: object): void
 /** Create (or reset to closed) the gate with the given id. */
 export declare function openBorrowGate(id: number): void
 
+export declare function openDisposableAsyncGate(gateId: number): void
+
 export declare function optionalCallbackTypes(callback?: ((arg: string) => unknown) | undefined | null): void
 
 export declare function optionEnd(callback: (arg0: string, arg1?: string | undefined | null) => void): void
@@ -2099,6 +2256,14 @@ export declare function readBorrowedExternalAsyncFn(ext: ExternalObject<number>,
 
 export declare function readBorrowedExternalTask(ext: ExternalObject<number>, gate: number): Promise<number>
 
+export declare function readDisposableInstance(inst: DisposableResource): number
+
+export declare function readDisposableInstanceFromObjectProperty(obj: object): number
+
+export declare function readDisposableRef(res: DisposableResource): number
+
+export declare function readDisposableRefStrict(res: DisposableResource): number
+
 /**
  * What `read_then_cancel` and `cancel_pending_read` saw. An error field is unset when
  * that cancel resolved, or holds the error message when it failed.
@@ -2185,6 +2350,8 @@ export declare function referenceWithTupleArg(callback: (arg: [number, number]) 
  * exactly one.
  */
 export declare function reflectRefsDeletedAtTeardown(): number
+
+export declare function releaseDisposableAsyncGate(gateId: number): void
 
 export declare function removeWrappedObjectAsU8Rejected(obj: object): boolean
 
@@ -2505,6 +2672,8 @@ export declare function uInit8ArrayFromString(): Promise<Uint8Array>
 
 export declare function uint16ArraySliceCopyFrom(data: Array<number>): Uint16Array
 
+export declare function uint16ArraySliceCopyFromReadBack(data: Array<number>): Array<number>
+
 export declare function uint16ArraySync(data: Uint16Array): void
 
 export declare function uint16ArraySyncAfterCallback(data: Uint16Array, callback: () => void): void
@@ -2515,9 +2684,13 @@ export declare function uint8ArrayFromExternal(): Uint8Array
 
 export declare function uint8ArraySliceCopyFrom(data: Array<number>): Uint8Array
 
+export declare function uint8ArraySliceCopyFromReadBack(data: Array<number>): Array<number>
+
 export declare function uint8ArraySliceFromExternalReadBack(): string
 
 export declare function uint8ClampedSliceCopyFrom(data: Array<number>): Uint8ClampedArray
+
+export declare function uint8ClampedSliceCopyFromReadBack(data: Array<number>): Array<number>
 
 export declare function uint8ClampedSliceFromExternalReadBack(): string
 
@@ -2606,6 +2779,8 @@ export interface ViteImportGlobMeta {
 
 export type VoidNullable<T = void> = Nullable<T>
 
+export declare function waitDisposableAsyncGateEntered(gateId: number): Promise<void>
+
 /**
  * Resolves once at least `count` tasks are blocked inside `wait_borrow_gate`
  * for gate `id`: a pool thread has picked the work up, however long the
@@ -2627,6 +2802,8 @@ export declare function wasmMemorySizeBytes(): number
 export declare function withAbortController(a: number, b: number, signal: AbortSignal): Promise<number>
 
 export declare function withAbortSignalHandle(signal: AbortSignal): Promise<number>
+
+export declare function withDisposableInstanceCallback(inst: DisposableResource, cb: () => void): number
 
 export declare function withinAsyncRuntimeIfAvailable(): void
 

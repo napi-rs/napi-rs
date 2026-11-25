@@ -93,8 +93,8 @@ function __resolveInstanceMemory(__options) {
     throw new TypeError("The deferred loader requires an unshared WebAssembly.Memory");
   }
   // The intrinsic getters above accept a genuine Memory from ANY realm, but
-  // the loader's dependencies do not: `WASI.setMemory` in
-  // `@napi-rs/wasm-runtime` and emnapi identify a Memory with a realm-local
+  // `WASI._setMemory` in `@tybys/wasm-util` (and older `@emnapi/core`
+  // releases before 2.0.0-beta.4) still identify a Memory with a realm-local
   // `instanceof`. A Memory built in another realm (a `node:vm` context, a
   // same-origin iframe) would pass every check here and only fail deep inside
   // initialization. Reject it up front, and before the claim below, so the
@@ -208,9 +208,10 @@ async function __normalizeModuleForEmnapi(__module) {
       return __normalizedModule;
     }
   }
-  // @emnapi/core currently performs realm-local `instanceof` checks after
-  // accepting the module. Structured cloning preserves compiled code without
-  // compiling bytes and produces a Module owned by the current realm.
+  // Older @emnapi/core releases (< 2.0.0-beta.4) perform realm-local
+  // `instanceof` checks after accepting the module. Structured cloning
+  // preserves compiled code without compiling bytes and produces a Module owned
+  // by the current realm.
   if (typeof structuredClone === "function") {
     try {
       const __normalizedModule = structuredClone(__module);
@@ -292,39 +293,6 @@ function __wrapEmnapiContextDestroyForSettlement(
     });
   } catch {}
   return context;
-}
-
-function __captureEmnapiAutoDestroyListener(__process) {
-  if (
-    !__process ||
-    typeof __process.prependListener !== "function" ||
-    typeof __process.removeListener !== "function"
-  ) {
-    return;
-  }
-  let __autoDestroyListener;
-  const __captureListener = (__event, __listener) => {
-    if (__event === "beforeExit" && __autoDestroyListener === undefined) {
-      __autoDestroyListener = __listener;
-    }
-  };
-  try {
-    // Run before existing newListener hooks so a hook that registers its own
-    // beforeExit listener cannot be mistaken for emnapi's registration.
-    __process.prependListener("newListener", __captureListener);
-  } catch {
-    return;
-  }
-  return () => {
-    try {
-      __process.removeListener("newListener", __captureListener);
-    } catch {}
-    if (__autoDestroyListener !== undefined) {
-      try {
-        __process.removeListener("beforeExit", __autoDestroyListener);
-      } catch {}
-    }
-  };
 }
 
 function __attachCleanupError(__error, __cleanupError) {
@@ -984,7 +952,12 @@ function __registerManagedEmnapiContext(__process, __destroy) {
 
 async function __createManagedEmnapiContext(__prepareEnvCleanup, __isPreparingEnvCleanup) {
   const __process = typeof process === "object" && process !== null ? process : undefined;
-  const __finishAutoDestroyCapture = __captureEmnapiAutoDestroyListener(__process);
+  let __beforeExitCount = -1;
+  if (__process && typeof __process.listeners === "function") {
+    try {
+      __beforeExitCount = __process.listeners("beforeExit").length;
+    } catch {}
+  }
   let __emnapiContext;
   let __contextInitializationError;
   let __contextInitializationFailed = false;
@@ -994,18 +967,25 @@ async function __createManagedEmnapiContext(__prepareEnvCleanup, __isPreparingEn
       __prepareEnvCleanup,
       __isPreparingEnvCleanup,
     );
-    // emnapi 2.x still registers an unconditional process.once('beforeExit')
-    // auto-destroy listener on Node hosts, and suppressDestroy() only
-    // neutralizes its callback without removing it. This loader must stay
-    // side-effect free per instance, so the listener is captured and removed;
-    // suppressDestroy() remains the safety net when removal is unavailable.
+    // On @emnapi/runtime >= 2.0.0-beta.4, `{ autoDestroy: false }` skips
+    // registering a process.once('beforeExit') listener altogether, and
+    // suppressDestroy() removes any registered listener. Older emnapi releases
+    // (1.x, 2.0.0-beta.2/beta.3) ignore `autoDestroy: false` and leave the
+    // listener attached after suppressDestroy(); the passive length check in
+    // `finally` removes it without installing a `newListener` hook.
     __emnapiContext.suppressDestroy();
   } catch (error) {
     __contextInitializationError = error;
     __contextInitializationFailed = true;
   } finally {
-    // Remove only the exact emnapi callback captured above.
-    __finishAutoDestroyCapture?.();
+    if (__beforeExitCount !== -1 && __process && typeof __process.removeListener === "function") {
+      try {
+        const __afterListeners = __process.listeners("beforeExit");
+        if (__afterListeners.length > __beforeExitCount) {
+          __process.removeListener("beforeExit", __afterListeners[__afterListeners.length - 1]);
+        }
+      } catch {}
+    }
   }
   if (__emnapiContext === undefined) {
     throw __contextInitializationError;
@@ -1150,7 +1130,6 @@ async function __createManagedEmnapiContext(__prepareEnvCleanup, __isPreparingEn
 
 async function __createInstance(__wasmInput, __options, __beforeExitDestroy, __onManagedDestroyer) {
   const __module = await __resolveModule(__wasmInput);
-  const __emnapiModule = await __normalizeModuleForEmnapi(__module);
   const __wasi = new __WASI({
     version: "preview1",
   });
@@ -1493,10 +1472,8 @@ async function __createInstance(__wasmInput, __options, __beforeExitDestroy, __o
       await __registerCleanup(__destroyBeforeExit);
     }
     __emnapiContext.features.Buffer = Buffer;
-    let __napiModule;
-    ({ instance: __napiInstance, napiModule: __napiModule } = await __emnapiInstantiateNapiModule(
-      __emnapiModule,
-      {
+    const __instantiateWithModule = (__targetModule) =>
+      __emnapiInstantiateNapiModule(__targetModule, {
         context: __emnapiContext,
         asyncWorkPoolSize: 0,
         plugins: [__emnapiAsyncWorkPlugin, __emnapiTSFNPlugin],
@@ -1518,8 +1495,28 @@ async function __createInstance(__wasmInput, __options, __beforeExitDestroy, __o
             }
           }
         },
-      },
-    ));
+      });
+    let __instantiatePromise;
+    try {
+      __instantiatePromise = __instantiateWithModule(__module);
+    } catch (__instantiateError) {
+      // @emnapi/core < 2.0.0-beta.4 checks `wasmInput instanceof WebAssembly.Module`
+      // synchronously inside `load()` and throws `TypeError('Invalid wasm source')`
+      // before calling `WebAssembly.instantiate`. Any failure once instantiation
+      // begins rejects the returned Promise asynchronously and never enters here.
+      if (
+        __instantiateError instanceof TypeError &&
+        __instantiateError.message === "Invalid wasm source" &&
+        !(__module instanceof WebAssembly.Module)
+      ) {
+        const __normalizedModule = await __normalizeModuleForEmnapi(__module);
+        __instantiatePromise = __instantiateWithModule(__normalizedModule);
+      } else {
+        throw __instantiateError;
+      }
+    }
+    const { instance: __loadedInstance, napiModule: __napiModule } = await __instantiatePromise;
+    __napiInstance = __loadedInstance;
     // `instantiate()` and `createInstance().exports` hand out this object; a
     // named module export does not travel with it. After the instance host
     // install, which hands the same object to addon-provided registration

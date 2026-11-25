@@ -1,4 +1,4 @@
-// napi-rs-artifact-metadata:{"version":2,"rootEntry":"index.cjs","exports":["Animal","AnimalWithDefaultConstructor","AnotherClassForEither","AnotherCssStyleSheet","AnotherCSSStyleSheet","ArgRefHolder","Asset","JsAsset","Assets","JsAssets","AsyncDataSource","AsyncFib","AsyncThrowClass","Bird","Blake2BHasher","Blake2bHasher","Blake2BKey","Blake2bKey","BorrowedCache","CatchOnConstructor","CatchOnConstructor2","ClassInArray","ClassReturnInPromise","ClassWithFactory","ClassWithLifetime","ClosableStreamRead","Context","CounterRepro","CreateStringClass","CssRuleList","CSSRuleList","CssStyleSheet","CSSStyleSheet","CustomFinalize","CustomStruct","DefaultUseNullableClass","DelayedCounter","Dog","EagerReleaseHolder","FailingAsyncGenerator","FailingGenerator","Fib","Fib2","Fib3","Fib4","GetterSetterWithClosures","Issue3600Empty","Issue3600Tracked","Issue3602Empty","Issue3602ThrowInCtor","Issue3602Tracked","Issue3608Holder","Issue3608Other","Issue3608Wide","JsClassForEither","JSOnlyMethodsClass","RustOnlyMethodsClass","JsRemote","JsRepo","MyJsNamedClass","OriginalRustNameForJsNamedStruct","NinjaTurtle","NotUseNullableClass","NotWritableClass","Optional","OptionalBeforeRequiredClass","OptionalConditionalBeforeRequiredClass","PackageJsonReader","Reader","ReentrantBorrowOrderTest","RenamedForIssue3427","RenamedForIssue3427Rust","Selector","SleepOverlapProbe","SpawnedAsyncTask","StaticPropertyFlags","SymbolNamedClass","SymbolNamedFields","Thing","ThingList","TypeTagA","TypeTagB","UnwrapForgerySurface","UseNullableClass","WellKnownSymbolClass","Width","acceptArraybuffer","acceptPromiseExternal","acceptSlice","acceptStream","acceptThreadsafeFunction","acceptThreadsafeFunctionFatal","acceptThreadsafeFunctionTupleArgs","acceptThreadsafeFunctionTupleNoFnArgs","acceptUint8ClampedSlice","acceptUint8ClampedSliceAndBufferSlice","acceptUntypedTypedArray","acceptUntypedTypedArrayBytes","add","ALIAS","AliasedEnum","aliasEitherMutExternal","aliasExternalRefAndMut","aliasExternalRefAndRef","aliasExternalRefPair","aliasMutMutExternal","aliasMutRefExternal","aliasOptionalMutExternal","aliasRefMutExternal","aliasRefRefExternal","aliasVecMutExternal","appendBuffer","appendToOsString","apply0","apply1","applyStashedProperties","applyStashedPropertyValue","argRefCounters","argRefsPendingForever","argRefsResolveNow","argRefsSliceNow","arrayBufferCopyFrom","arrayBufferFromData","arrayBufferFromExternal","arrayBufferFromExternalReadBack","arrayBufferLenAsync","arrayBufferPassThrough","arrayParams","asyncBufferToArray","asyncFnPendingForever","asyncFnResolveNow","asyncFnSleep","asyncMultiTwo","asyncPlus100","asyncReduceBuffer","asyncResolveArray","asyncTaskArraybuffer","asyncTaskCounted","asyncTaskFinally","asyncTaskIsExecuting","asyncTaskOptionalReturn","asyncTaskPromiseSettleMode","asyncTaskReadFile","asyncTaskRejectIsExecuting","asyncTaskRejectWithCapturedValue","asyncTaskSettleCounters","asyncTaskSignalWhenExecuting","asyncTaskSignalWhenExecutingReject","asyncTaskThrowInResolve","asyncTaskVoidReturn","awaitRejectionOffThread","bigintAdd","bigintFromI128","bigintFromI64","bigintGetU64AsString","blockBorrowGate","borrowGateWaiters","btreeSetToJs","btreeSetToRust","bufferAssertionTarget","bufferComplexOverride","bufferDestructureBinding","bufferGenericConstraint","bufferGenericShadow","bufferLenAsync","bufferPassThrough","buffersDroppedOffThread","bufferSliceCopyFromMutated","bufferSliceCopyFromReadBack","bufferSliceFromDataMutated","bufferSliceFromDataReadBack","bufferSliceFromExternalMutated","bufferSliceFromExternalReadBack","bufferValueBinding","bufferWithAsyncBlock","buildThreadsafeFunctionFromFunction","buildThreadsafeFunctionFromFunctionCalleeHandle","call0","call1","call2","callAsyncWithUnknownReturnValue","callbackInSpawn","callbackReturnPromise","callbackReturnPromiseAndSpawn","callCatchOnPromise","callCatchOnPromiseCapturing","callFinallyOnPromise","callFunction","callFunctionWithArg","callFunctionWithArgAndCtx","callLongThreadsafeFunction","callRuleHandler","callThenOnPromise","callThenOnPromiseCapturing","callThreadsafeFunction","callWithNestedFunctionArg","callWithTupleArg","cancelPendingRead","cancelReadableStream","cancelStashedOnJsThread","captureErrorInCallback","chronoDateAdd1Minute","chronoDateFixtureReturn1","chronoDateFixtureReturn2","chronoDateWithTimezoneReturn","chronoDateWithTimezoneToMillis","chronoLocalDateReturn","chronoLocalDateToMillis","chronoNativeDateTime","chronoNativeDateTimeReturn","chronoUtcDateReturn","chronoUtcDateToMillis","churnGlobalHandles","classRefsDeletedAtTeardown","cleanupReentrantBorrowOrderTestTargets","clearStashedProperties","closeBorrowGate","closureDropCount","compressSync","concatLatin1","concatStr","concatUtf16","contains","convertU32Array","createArraybuffer","createBigInt","createBigIntI64","createBufferSliceFromCopiedData","createBufferSliceOfSize","createClosureReadingExternal","createDeferredThenFail","createDuplicateExternalRef","createErrorFromRetainedValue","createErroringReadableStream","createExternal","createExternalBufferSlice","createExternalLatin1CustomFinalize","createExternalLatin1Empty","createExternalLatin1Long","createExternalLatin1Short","createExternalLatin1String","createExternalLatin1WithLatin1Chars","createExternalRef","createExternalString","createExternalTypedArray","createExternalUtf16String","createForeignExternal","createFunction","createI32ArrayFromExternal","createNotUseNullableStruct","createObj","createObjectRef","createObjectWithClassField","createObjWithProperty","createOptionalExternal","createPanickingClosureFunction","createReadableStream","createReadableStreamFromClass","createReadableStreamWithObject","createReentrantBorrowOrderTestTarget","createReferenceOnFunction","createRejectedPromise","createResolvedPromise","createStaticLatin1String","createStaticUtf16String","createSymbol","createSymbolFor","createSymbolRef","createUint8ClampedArrayFromData","createUint8ClampedArrayFromExternal","createUseNullableStruct","createZeroCopyLatin1String","createZeroCopyUtf16String","customGcRefCounts","customGcTsfnsReleasedAtTeardown","CustomNumEnum","customStatusCode","CustomStringEnum","dateToNumber","deep","DEFAULT_COST","deferredDropCounters","defineClass","defineClassTwiceWithClosures","defineClassWithClosures","definePropertiesTwiceWithClosures","defineSymbolClass","defineSymbolObject","derefUint8Array","describeCapturedValue","describePromiseRejection","detachReentrantBorrowOrderTestTarget","drainStreamCount","dropBuffersOffThread","dropClonedErrorsOnTwoThreads","dropDeferredAfterObserve","dropDeferredAtEnvTeardown","dropDeferredOffThread","dropDeferredOffThreadWithCallback","dropDeferredUnsettled","dropDeferredWithExceptionPending","dropErrorFromValueOffThread","dropHeldFunctionRefsAtTeardown","dropKeptDeferreds","dropStashedCancelHandle","either3","either4","eitherBoolOrFunction","eitherBoolOrTuple","eitherF64OrU32","eitherFromObjects","eitherFromOption","eitherPromiseInEitherA","eitherStringOrNumber","eitherUint16OrFloat64Array","Empty","enumToI32","errorMessageContainsNullByte","escapeExternalFromObject","esmResolve","extendsJavascriptError","f32ArrayToArray","f64ArrayToArray","fibonacci","float64ArraySliceCopyFrom","float64ArraySync","fnReceivedAliased","functionRefsDroppedAtTeardown","generateFunctionAndCallIt","getBigintJsonValue","getBtreeMapping","getBuffer","getBufferSlice","getClassFromArray","getCwd","getEmptyBuffer","getEmptyTypedArray","getExternal","getExternalRef","getGlobal","getIndexMapping","getIndexMappingWithHasher","getMapping","getMappingWithHasher","getModuleFileName","getMyVec","getNestedNumArr","getNull","getNullByteProperty","getNumArr","getNums","getOptionalExternal","getPackageJsonName","getStrFromObject","getterFromObj","getTuple","getUndefined","getWords","holdFunctionRefsOnThread","i16ArrayToArray","i32ArrayToArray","i64ArrayToArray","i8ArrayToArray","indexmapPassthrough","indexSetToJs","indexSetToRust","intoUtf8","issue3427Either","issue3427Option","issue3427Strict","issue3600EmptyDropped","issue3600EmptyInstances","issue3600PendingEmptyIntoInstance","issue3600PendingEmptyIntoReference","issue3600PendingEmptyReturn","issue3600PendingIntoInstance","issue3600PendingIntoReference","issue3600PendingReturn","issue3600TrackedDropped","issue3602EmptyCreated","issue3602EmptyDropped","issue3602ThrowInCtorDropped","issue3602TrackedCreated","issue3602TrackedDropped","issue3608BumpOther","issue3608ReadOther","issue3608ReadOtherInstance","issue3655RejectedCalls","issue3655RejectedCallsCalleeHandled","issue3655RejectedPayloadLocksHandle","joinPath","jsErrorCallback","jsErrorFromRetainedValue","jsErrorWithoutRetainedValue","jsRangeErrorFromRetainedValue","jsRangeErrorWithoutRetainedValue","jsTypeErrorFromRetainedValue","jsTypeErrorWithoutRetainedValue","keepDeferreds","Kind","KindInValidate","legacyNinjaTurtleConstructor","listObjKeys","makeDeepSerdeValue","makeTypeTagA","mapOption","mergeTupleArray","moduleRetentionRequests","mutateArraybuffer","mutateExternal","mutateOptionalExternal","mutateTypedArray","nestedZeroArgTask","objectGetNamedPropertyShouldPerformTypecheck","objectRemoveWrappedA","objectRewrapAfterRemove","objectRewrapWithDifferentType","objectWithCApis","objectWrapMismatchKeepsWrap","objectWrapRoundtrip","objectWrapWithA","openBorrowGate","optionalCallbackTypes","optionEnd","optionOnly","optionStart","optionStartEnd","overrideIndividualArgOnFunction","overrideIndividualArgOnFunctionWithCbArg","overrideWholeFunctionType","panic","panicInAsync","passSetToJs","passSetToRust","passSetWithHasherToJs","pathParent","plusOne","promiseInEither","promiseRawReturnClassInstance","queuedCancelAtTeardownOutcome","readBorrowedCache","readBorrowedCacheAlias","readBorrowedCacheAsyncBlock","readBorrowedCacheMaybe","readBorrowedCacheMaybeResult","readBorrowedCacheSpawnInside","readBorrowedCacheVec","readBorrowedCacheWithReentry","readBorrowedCacheWithSignal","readBorrowedExternalAsyncFn","readBorrowedExternalTask","readerWakerClonesAfterRead","readFile","readFileAsync","readOptionalExternalAsyncFn","readPackageJson","readThenCancel","receiveAllOptionalObject","receiveBindingVitePluginMeta","receiveBufferSliceWithLifetime","receiveClassOrNumber","receiveDifferentClass","receiveMutClassOrNumber","receiveObjectOnlyFromJs","receiveObjectWithClassField","receiveStrictObject","receiveString","reenterDuringExternalArgConversion","reenterExternalCallback","reenterMutExternalCallback","REENTRY_GATE","referenceAsCallback","referenceWithTupleArg","reflectRefsDeletedAtTeardown","removeWrappedObjectAsU8Rejected","returnCString","returnEither","returnEitherClass","returnFromSharedCrate","returnNull","returnObjectOnlyToJs","returnUndefined","returnUndefinedIfInvalid","returnUndefinedIfInvalidPromise","reuseStashedPropertyOnObjectsAndClasses","roundtripStr","runScript","setNullByteProperty","setSymbolInObj","settledDeferreds","shorterEscapableScope","shorterScope","shutdownAsyncRuntimeNow","shutdownRuntime","spawnAsyncTask","spawnFutureLifetime","spawnThreadInThread","stashBufferInThreadLocal","stashErrorInThreadLocal","stashPropertiesUntilExit","stashPropertiesWithNames","stashPropertiesWithNapiValues","stashPropertyValue","stashPropertyValueDuringPendingException","stashTypedArrayInThreadLocal","Status","StatusInValidate","StringEnum","sumBtreeMapping","sumIndexMapping","sumMapping","sumNums","testEscapedQuotesInComments","testLatin1Methods","testSerdeBigNumberPrecision","testSerdeBufferBytes","testSerdeI128FromJs","testSerdeI64FromJs","testSerdeJsonFromJs","testSerdeNumberFromJs","testSerdeRoundtrip","testSerdeU128FromJs","testUtf8Methods","testWorkers","threadsafeFunctionBuildThrowErrorWithStatus","threadsafeFunctionClosureCapture","threadsafeFunctionFatalMode","threadsafeFunctionFatalModeError","threadsafeFunctionThrowError","threadsafeFunctionThrowErrorWithStatus","throwAsyncError","throwDetachedPendingException","throwError","throwErrorWithCause","throwSyntaxError","toJsObj","tryCloneErrorCauseOffThread","tryCloneErrorCauseTransitiveOffThread","tryCloneErrorOffThread","tryCloneErrorOffThreadKeepReference","tsfnAsyncCall","tsfnCallWithCallback","tsfnInEither","tsfnReturnExternal","tsfnReturnPromise","tsfnReturnPromiseTimeout","tsfnThrowFromJs","tsfnThrowFromJsCallbackContainsTsfn","tsfnThrowFromJsCatch","tsfnThrowFromJsCatchDropInThread","tsfnThrowFromJsCatchHandled","tsfnThrowFromJsCatchRecover","tsfnWeak","tsRename","u16ArrayToArray","u32ArrayToArray","u64ArrayToArray","u8ArrayToArray","uInit8ArrayFromString","uint16ArraySliceCopyFrom","uint16ArraySync","uint16ArraySyncAfterCallback","uint8ArrayFromData","uint8ArrayFromExternal","uint8ArraySliceCopyFrom","uint8ArraySliceFromExternalReadBack","uint8ClampedSliceCopyFrom","uint8ClampedSliceFromExternalReadBack","unwrapObjectAsARejected","unwrapObjectAsTypeTagARejected","unwrapObjectAsU8Rejected","validateArray","validateBigint","validateBoolean","validateBuffer","validateBufferSlice","validateDate","validateDateTime","validateEnum","validateExternal","validateFunction","validateHashMap","validateNull","validateNumber","validateOptional","validatePromise","validateString","validateStringEnum","validateStructuredEnum","validateStructuredEnumLowercase","validateSymbol","validateTypedArray","validateTypedArraySlice","validateUint8ClampedSlice","validateUndefined","waitForBorrowGateWaiters","wasmMemorySizeBytes","withAbortController","withAbortSignalHandle","withinAsyncRuntimeIfAvailable","withoutAbortController","xxh64Alias","xxh2","xxh3","ComplexClass"],"managedRootEntries":["browser.js","index.cjs","example.wasm","example.debug.wasm"]}
+// napi-rs-artifact-metadata:{"version":2,"rootEntry":"index.cjs","exports":["Animal","AnimalWithDefaultConstructor","AnotherClassForEither","AnotherCssStyleSheet","AnotherCSSStyleSheet","ArgRefHolder","Asset","JsAsset","Assets","JsAssets","AssignedTypedArraySlices","AsyncDataSource","AsyncFib","AsyncThrowClass","Bird","Blake2BHasher","Blake2bHasher","Blake2BKey","Blake2bKey","BorrowedCache","CatchOnConstructor","CatchOnConstructor2","ClassInArray","ClassReturnInPromise","ClassWithFactory","ClassWithLifetime","ClosableStreamRead","Context","CounterRepro","CreateStringClass","CssRuleList","CSSRuleList","CssStyleSheet","CSSStyleSheet","CustomFinalize","CustomStruct","DefaultUseNullableClass","DelayedCounter","DisposableAlignedZst","DisposableCustomFinalize","DisposableDefaultCtor","DisposableFieldHook","DisposableNonDisposable","DisposableRefHolder","DisposableResource","DisposableSharedHolder","DisposableSibling","DisposableWeakHolder","DisposableWithLifetime","DisposableZst","Dog","EagerReleaseHolder","FailingAsyncGenerator","FailingGenerator","Fib","Fib2","Fib3","Fib4","GetterSetterWithClosures","Issue3600Empty","Issue3600Tracked","Issue3602Empty","Issue3602ThrowInCtor","Issue3602Tracked","Issue3608Holder","Issue3608Other","Issue3608Wide","JsClassForEither","JSOnlyMethodsClass","RustOnlyMethodsClass","JsRemote","JsRepo","MyJsNamedClass","OriginalRustNameForJsNamedStruct","NinjaTurtle","NotUseNullableClass","NotWritableClass","Optional","OptionalBeforeRequiredClass","OptionalConditionalBeforeRequiredClass","PackageJsonReader","Reader","ReentrantBorrowOrderTest","RenamedDisposable","DisposableCustomJsName","RenamedForIssue3427","RenamedForIssue3427Rust","Selector","SleepOverlapProbe","SpawnedAsyncTask","StaticPropertyFlags","SymbolNamedClass","SymbolNamedFields","Thing","ThingList","TypeTagA","TypeTagB","UnwrapForgerySurface","UseNullableClass","WellKnownSymbolClass","Width","acceptArraybuffer","acceptPromiseExternal","acceptSlice","acceptStream","acceptThreadsafeFunction","acceptThreadsafeFunctionFatal","acceptThreadsafeFunctionTupleArgs","acceptThreadsafeFunctionTupleNoFnArgs","acceptUint8ClampedSlice","acceptUint8ClampedSliceAndBufferSlice","acceptUntypedTypedArray","acceptUntypedTypedArrayBytes","add","ALIAS","AliasedEnum","aliasEitherMutExternal","aliasExternalRefAndMut","aliasExternalRefAndRef","aliasExternalRefPair","aliasMutMutExternal","aliasMutRefExternal","aliasOptionalMutExternal","aliasRefMutExternal","aliasRefRefExternal","aliasVecMutExternal","appendBuffer","appendToOsString","apply0","apply1","applyStashedProperties","applyStashedPropertyValue","argRefCounters","argRefsPendingForever","argRefsResolveNow","argRefsSliceNow","arrayBufferCopyFrom","arrayBufferCopyFromReadBack","arrayBufferFromData","arrayBufferFromExternal","arrayBufferFromExternalReadBack","arrayBufferLenAsync","arrayBufferPassThrough","arrayParams","asyncBufferToArray","asyncFnPendingForever","asyncFnResolveNow","asyncFnSleep","asyncMultiTwo","asyncPlus100","asyncReduceBuffer","asyncResolveArray","asyncTaskArraybuffer","asyncTaskCounted","asyncTaskFinally","asyncTaskIsExecuting","asyncTaskOptionalReturn","asyncTaskPromiseSettleMode","asyncTaskReadFile","asyncTaskRejectIsExecuting","asyncTaskRejectWithCapturedValue","asyncTaskSettleCounters","asyncTaskSignalWhenExecuting","asyncTaskSignalWhenExecutingReject","asyncTaskThrowInResolve","asyncTaskVoidReturn","awaitRejectionOffThread","bigintAdd","bigintFromI128","bigintFromI64","bigintGetU64AsString","blockBorrowGate","borrowGateWaiters","btreeSetToJs","btreeSetToRust","bufferAssertionTarget","bufferComplexOverride","bufferDestructureBinding","bufferGenericConstraint","bufferGenericShadow","bufferLenAsync","bufferPassThrough","buffersDroppedOffThread","bufferSliceCopyFromMutated","bufferSliceCopyFromReadBack","bufferSliceFromDataMutated","bufferSliceFromDataReadBack","bufferSliceFromExternalMutated","bufferSliceFromExternalReadBack","bufferValueBinding","bufferWithAsyncBlock","buildThreadsafeFunctionFromFunction","buildThreadsafeFunctionFromFunctionCalleeHandle","bumpDisposableMutRef","call0","call1","call2","callAsyncWithUnknownReturnValue","callbackInSpawn","callbackReturnPromise","callbackReturnPromiseAndSpawn","callCatchOnPromise","callCatchOnPromiseCapturing","callFinallyOnPromise","callFunction","callFunctionWithArg","callFunctionWithArgAndCtx","callLongThreadsafeFunction","callRuleHandler","callThenOnPromise","callThenOnPromiseCapturing","callThreadsafeFunction","callWithNestedFunctionArg","callWithTupleArg","cancelPendingRead","cancelReadableStream","cancelStashedOnJsThread","captureErrorInCallback","chronoDateAdd1Minute","chronoDateFixtureReturn1","chronoDateFixtureReturn2","chronoDateWithTimezoneReturn","chronoDateWithTimezoneToMillis","chronoLocalDateReturn","chronoLocalDateToMillis","chronoNativeDateTime","chronoNativeDateTimeReturn","chronoUtcDateReturn","chronoUtcDateToMillis","churnGlobalHandles","classRefsDeletedAtTeardown","cleanupReentrantBorrowOrderTestTargets","clearStashedProperties","closeBorrowGate","closureDropCount","compressSync","concatLatin1","concatStr","concatUtf16","contains","convertU32Array","createArraybuffer","createArraybufferOfSize","createBigInt","createBigIntI64","createBufferSliceFromCopiedData","createBufferSliceOfSize","createClosureReadingExternal","createDeferredThenFail","createDisposableAlignedZst","createDisposableByValue","createDisposableZst","createDuplicateExternalRef","createErrorFromRetainedValue","createErroringReadableStream","createExternal","createExternalBufferSlice","createExternalLatin1CustomFinalize","createExternalLatin1Empty","createExternalLatin1Long","createExternalLatin1Short","createExternalLatin1String","createExternalLatin1WithLatin1Chars","createExternalRef","createExternalString","createExternalTypedArray","createExternalUtf16String","createForeignExternal","createFunction","createI32ArrayFromExternal","createNotUseNullableStruct","createObj","createObjectRef","createObjectWithClassField","createObjWithProperty","createOptionalExternal","createPanickingClosureFunction","createReadableStream","createReadableStreamFromClass","createReadableStreamWithObject","createReentrantBorrowOrderTestTarget","createReferenceOnFunction","createRejectedPromise","createResolvedPromise","createStaticLatin1String","createStaticUtf16String","createSymbol","createSymbolFor","createSymbolRef","createUint16ArraySliceOfSize","createUint8ArraySliceOfSize","createUint8ClampedArrayFromData","createUint8ClampedArrayFromExternal","createUint8ClampedSliceOfSize","createUseNullableStruct","createZeroCopyLatin1String","createZeroCopyUtf16String","customGcRefCounts","customGcTsfnsReleasedAtTeardown","CustomNumEnum","customStatusCode","CustomStringEnum","dateToNumber","deep","DEFAULT_COST","deferredDropCounters","defineClass","defineClassTwiceWithClosures","defineClassWithClosures","definePropertiesTwiceWithClosures","defineSymbolClass","defineSymbolObject","derefUint8Array","describeCapturedValue","describePromiseRejection","detachReentrantBorrowOrderTestTarget","drainStreamCount","dropBuffersOffThread","dropClonedErrorsOnTwoThreads","dropDeferredAfterObserve","dropDeferredAtEnvTeardown","dropDeferredOffThread","dropDeferredOffThreadWithCallback","dropDeferredUnsettled","dropDeferredWithExceptionPending","dropErrorFromValueOffThread","dropHeldFunctionRefsAtTeardown","dropKeptDeferreds","dropStashedCancelHandle","either3","either4","eitherBoolOrFunction","eitherBoolOrTuple","eitherF64OrU32","eitherFromObjects","eitherFromOption","eitherPromiseInEitherA","eitherStringOrNumber","eitherUint16OrFloat64Array","Empty","enumToI32","errorMessageContainsNullByte","escapeExternalFromObject","esmResolve","extendsJavascriptError","f32ArrayToArray","f64ArrayToArray","fibonacci","float64ArraySliceCopyFrom","float64ArraySync","fnReceivedAliased","functionRefsDroppedAtTeardown","generateFunctionAndCallIt","getBigintJsonValue","getBtreeMapping","getBuffer","getBufferSlice","getClassFromArray","getCwd","getDisposableAlignedZstDropCount","getDisposableDropCount","getDisposableFinalizeCount","getDisposableSharedViewDropCount","getDisposableSharedViewDropObservation","getDisposableZstDropCount","getEmptyBuffer","getEmptyTypedArray","getExternal","getExternalRef","getGlobal","getIndexMapping","getIndexMappingWithHasher","getMapping","getMappingWithHasher","getModuleFileName","getMyVec","getNestedNumArr","getNull","getNullByteProperty","getNumArr","getNums","getOptionalExternal","getPackageJsonName","getStrFromObject","getterFromObj","getTuple","getUndefined","getWords","holdFunctionRefsOnThread","i16ArrayToArray","i32ArrayToArray","i64ArrayToArray","i8ArrayToArray","indexmapPassthrough","indexSetToJs","indexSetToRust","intoInstanceDisposedInCallback","intoUtf8","issue3427Either","issue3427Option","issue3427Strict","issue3600EmptyDropped","issue3600EmptyInstances","issue3600PendingEmptyIntoInstance","issue3600PendingEmptyIntoReference","issue3600PendingEmptyReturn","issue3600PendingIntoInstance","issue3600PendingIntoReference","issue3600PendingReturn","issue3600TrackedDropped","issue3602EmptyCreated","issue3602EmptyDropped","issue3602ThrowInCtorDropped","issue3602TrackedCreated","issue3602TrackedDropped","issue3608BumpOther","issue3608ReadOther","issue3608ReadOtherInstance","issue3655RejectedCalls","issue3655RejectedCallsCalleeHandled","issue3655RejectedPayloadLocksHandle","joinPath","jsErrorCallback","jsErrorFromRetainedValue","jsErrorWithoutRetainedValue","jsRangeErrorFromRetainedValue","jsRangeErrorWithoutRetainedValue","jsTypeErrorFromRetainedValue","jsTypeErrorWithoutRetainedValue","keepDeferreds","Kind","KindInValidate","legacyNinjaTurtleConstructor","listObjKeys","makeDeepSerdeValue","makeTypeTagA","mapOption","mergeTupleArray","moduleRetentionRequests","mutateArraybuffer","mutateExternal","mutateOptionalExternal","mutateTypedArray","nestedZeroArgTask","objectGetNamedPropertyShouldPerformTypecheck","objectRemoveWrappedA","objectRewrapAfterRemove","objectRewrapWithDifferentType","objectWithCApis","objectWrapMismatchKeepsWrap","objectWrapRoundtrip","objectWrapWithA","openBorrowGate","openDisposableAsyncGate","optionalCallbackTypes","optionEnd","optionOnly","optionStart","optionStartEnd","overrideIndividualArgOnFunction","overrideIndividualArgOnFunctionWithCbArg","overrideWholeFunctionType","panic","panicInAsync","passSetToJs","passSetToRust","passSetWithHasherToJs","pathParent","plusOne","promiseInEither","promiseRawReturnClassInstance","queuedCancelAtTeardownOutcome","readBorrowedCache","readBorrowedCacheAlias","readBorrowedCacheAsyncBlock","readBorrowedCacheMaybe","readBorrowedCacheMaybeResult","readBorrowedCacheSpawnInside","readBorrowedCacheVec","readBorrowedCacheWithReentry","readBorrowedCacheWithSignal","readBorrowedExternalAsyncFn","readBorrowedExternalTask","readDisposableInstance","readDisposableInstanceFromObjectProperty","readDisposableRef","readDisposableRefStrict","readerWakerClonesAfterRead","readFile","readFileAsync","readOptionalExternalAsyncFn","readPackageJson","readThenCancel","receiveAllOptionalObject","receiveBindingVitePluginMeta","receiveBufferSliceWithLifetime","receiveClassOrNumber","receiveDifferentClass","receiveMutClassOrNumber","receiveObjectOnlyFromJs","receiveObjectWithClassField","receiveStrictObject","receiveString","reenterDuringExternalArgConversion","reenterExternalCallback","reenterMutExternalCallback","REENTRY_GATE","referenceAsCallback","referenceWithTupleArg","reflectRefsDeletedAtTeardown","releaseDisposableAsyncGate","removeWrappedObjectAsU8Rejected","returnCString","returnEither","returnEitherClass","returnFromSharedCrate","returnNull","returnObjectOnlyToJs","returnUndefined","returnUndefinedIfInvalid","returnUndefinedIfInvalidPromise","reuseStashedPropertyOnObjectsAndClasses","roundtripStr","runScript","setNullByteProperty","setSymbolInObj","settledDeferreds","shorterEscapableScope","shorterScope","shutdownAsyncRuntimeNow","shutdownRuntime","spawnAsyncTask","spawnFutureLifetime","spawnThreadInThread","stashBufferInThreadLocal","stashErrorInThreadLocal","stashPropertiesUntilExit","stashPropertiesWithNames","stashPropertiesWithNapiValues","stashPropertyValue","stashPropertyValueDuringPendingException","stashTypedArrayInThreadLocal","Status","StatusInValidate","StringEnum","sumBtreeMapping","sumIndexMapping","sumMapping","sumNums","testEscapedQuotesInComments","testLatin1Methods","testSerdeBigNumberPrecision","testSerdeBufferBytes","testSerdeI128FromJs","testSerdeI64FromJs","testSerdeJsonFromJs","testSerdeNumberFromJs","testSerdeRoundtrip","testSerdeU128FromJs","testUtf8Methods","testWorkers","threadsafeFunctionBuildThrowErrorWithStatus","threadsafeFunctionClosureCapture","threadsafeFunctionFatalMode","threadsafeFunctionFatalModeError","threadsafeFunctionThrowError","threadsafeFunctionThrowErrorWithStatus","throwAsyncError","throwDetachedPendingException","throwError","throwErrorWithCause","throwSyntaxError","toJsObj","tryCloneErrorCauseOffThread","tryCloneErrorCauseTransitiveOffThread","tryCloneErrorOffThread","tryCloneErrorOffThreadKeepReference","tsfnAsyncCall","tsfnCallWithCallback","tsfnInEither","tsfnReturnExternal","tsfnReturnPromise","tsfnReturnPromiseTimeout","tsfnThrowFromJs","tsfnThrowFromJsCallbackContainsTsfn","tsfnThrowFromJsCatch","tsfnThrowFromJsCatchDropInThread","tsfnThrowFromJsCatchHandled","tsfnThrowFromJsCatchRecover","tsfnWeak","tsRename","u16ArrayToArray","u32ArrayToArray","u64ArrayToArray","u8ArrayToArray","uInit8ArrayFromString","uint16ArraySliceCopyFrom","uint16ArraySliceCopyFromReadBack","uint16ArraySync","uint16ArraySyncAfterCallback","uint8ArrayFromData","uint8ArrayFromExternal","uint8ArraySliceCopyFrom","uint8ArraySliceCopyFromReadBack","uint8ArraySliceFromExternalReadBack","uint8ClampedSliceCopyFrom","uint8ClampedSliceCopyFromReadBack","uint8ClampedSliceFromExternalReadBack","unwrapObjectAsARejected","unwrapObjectAsTypeTagARejected","unwrapObjectAsU8Rejected","validateArray","validateBigint","validateBoolean","validateBuffer","validateBufferSlice","validateDate","validateDateTime","validateEnum","validateExternal","validateFunction","validateHashMap","validateNull","validateNumber","validateOptional","validatePromise","validateString","validateStringEnum","validateStructuredEnum","validateStructuredEnumLowercase","validateSymbol","validateTypedArray","validateTypedArraySlice","validateUint8ClampedSlice","validateUndefined","waitDisposableAsyncGateEntered","waitForBorrowGateWaiters","wasmMemorySizeBytes","withAbortController","withAbortSignalHandle","withDisposableInstanceCallback","withinAsyncRuntimeIfAvailable","withoutAbortController","xxh64Alias","xxh2","xxh3","ComplexClass"],"managedRootEntries":["browser.js","index.cjs","example.wasm","example.debug.wasm"]}
 /* eslint-disable */
 /* auto-generated by NAPI-RS */
 
@@ -245,7 +245,7 @@ let __wasiReentryClosed = false
  */
 function __wasiSetImmediate(callback) {
   return setImmediate(function () {
-    if (!__wasiReentryClosed) {
+    if (!__wasiReentryClosed && !__hasWasiThreadCrashed()) {
       callback()
     }
   })
@@ -385,12 +385,11 @@ function __releaseEmnapiWaitingRequestHandle() {
  * The public disposer after a wasm thread died. The normal chain drains async
  * work, runs the environment cleanup barrier and destroys the context — every
  * one of those re-enters wasm, and the barrier's shutdown waits for the dead
- * thread's work in the same raw atomic wait `__disposeWasiBindingAtExit`
- * avoids. An app that handled the worker's error and then disposes would block
- * there for good. Only stop the workers, then reject: the binding was not
- * cleaned up and cannot be, so reporting success would be a lie. The context
- * is not destroyed — only its waiting-request port is unrefed, so the process
- * can exit on its own — and the 'exit' listener takes its short path too.
+ * thread's work in a raw atomic wait. An app that handled the worker's error
+ * and then disposes would block there for good. Only stop the workers, then
+ * reject: the binding was not cleaned up and cannot be, so reporting success
+ * would be a lie. The context is not destroyed — only its waiting-request port
+ * is unrefed, so a Node event loop can exit on its own.
  *
  * Latched: every later call returns the same promise.
  */
@@ -474,9 +473,7 @@ function __settleWasiDisposalAfterThreadCrash(resolve, reject) {
  * wasm: the barrier, its finish and `Context.destroy()` are skipped, and the
  * crash disposal releases the waiting-request port and terminates the workers,
  * once. The initialization error itself is left to propagate: the crash error
- * is returned as the rollback's cleanup error, so
- * `__completeWasiInitializationRollback` attaches it — as the cause when the
- * error has none — and keeps the record, since the context was not destroyed.
+ * is returned as the rollback's cleanup error.
  */
 function __rollbackWasiInitializationAfterThreadCrash() {
   const crashError = __getWasiThreadCrashError()
@@ -2129,55 +2126,41 @@ __completeWasiDisposal = __removeWasiExitListener
 // is leaving and those promises have no observer left anyway.
 __retainWasiRollbackForRetry = __registerWasiExitListener
 
-function __captureEmnapiAutoDestroyListener() {
-  if (
-    typeof process.prependListener !== 'function' ||
-    typeof process.removeListener !== 'function'
-  ) {
-    return
-  }
-  let __autoDestroyListener
-  const __captureListener = (__event, __listener) => {
-    if (__event === 'beforeExit' && __autoDestroyListener === undefined) {
-      __autoDestroyListener = __listener
-    }
-  }
-  try {
-    // Run before existing newListener hooks so a hook that registers its own
-    // beforeExit listener cannot be mistaken for emnapi's registration.
-    process.prependListener('newListener', __captureListener)
-  } catch {
-    return
-  }
-  return () => {
-    try {
-      process.removeListener('newListener', __captureListener)
-    } catch {}
-    if (__autoDestroyListener !== undefined) {
-      try {
-        process.removeListener('beforeExit', __autoDestroyListener)
-      } catch {}
-    }
-  }
-}
-
 try {
-  const __finishAutoDestroyCapture = __captureEmnapiAutoDestroyListener()
+  let __beforeExitCount = -1
+  if (typeof process.listeners === 'function') {
+    try {
+      __beforeExitCount = process.listeners('beforeExit').length
+    } catch {}
+  }
   try {
     __emnapiContext = __wrapEmnapiContextDestroyForSettlement(
       __emnapiCreateContext({ autoDestroy: false, features: { setImmediate: __wasiSetImmediate } }),
       __prepareWasmEnvCleanup,
       __isPreparingWasmEnvCleanup,
     )
-    // emnapi 2.x still registers an unconditional once-listener for
-    // beforeExit that auto-destroys the context, and suppressDestroy() only
-    // neutralizes its callback without removing it. This loader owns cleanup
-    // through its 'exit' listener, so emnapi's listener is captured and
-    // removed; suppressDestroy() remains the safety net when removal fails.
+    // On @emnapi/runtime >= 2.0.0-beta.4, `{ autoDestroy: false }` skips
+    // registering a process.once('beforeExit') listener altogether, and
+    // suppressDestroy() removes any registered listener. Older emnapi releases
+    // (1.x, 2.0.0-beta.2/beta.3) ignore `autoDestroy: false` and leave the
+    // listener attached after suppressDestroy(); the passive length check in
+    // `finally` removes it without installing a `newListener` hook.
     __emnapiContext.suppressDestroy()
   } finally {
-    // Remove only the exact emnapi callback captured above.
-    __finishAutoDestroyCapture?.()
+    if (
+      __beforeExitCount !== -1 &&
+      typeof process.removeListener === 'function'
+    ) {
+      try {
+        const __afterListeners = process.listeners('beforeExit')
+        if (__afterListeners.length > __beforeExitCount) {
+          process.removeListener(
+            'beforeExit',
+            __afterListeners[__afterListeners.length - 1],
+          )
+        }
+      } catch {}
+    }
   }
 
   ;({
@@ -2307,6 +2290,7 @@ module.exports.Asset = __napiModule.exports.Asset
 module.exports.JsAsset = __napiModule.exports.JsAsset
 module.exports.Assets = __napiModule.exports.Assets
 module.exports.JsAssets = __napiModule.exports.JsAssets
+module.exports.AssignedTypedArraySlices = __napiModule.exports.AssignedTypedArraySlices
 module.exports.AsyncDataSource = __napiModule.exports.AsyncDataSource
 module.exports.AsyncFib = __napiModule.exports.AsyncFib
 module.exports.AsyncThrowClass = __napiModule.exports.AsyncThrowClass
@@ -2334,6 +2318,18 @@ module.exports.CustomFinalize = __napiModule.exports.CustomFinalize
 module.exports.CustomStruct = __napiModule.exports.CustomStruct
 module.exports.DefaultUseNullableClass = __napiModule.exports.DefaultUseNullableClass
 module.exports.DelayedCounter = __napiModule.exports.DelayedCounter
+module.exports.DisposableAlignedZst = __napiModule.exports.DisposableAlignedZst
+module.exports.DisposableCustomFinalize = __napiModule.exports.DisposableCustomFinalize
+module.exports.DisposableDefaultCtor = __napiModule.exports.DisposableDefaultCtor
+module.exports.DisposableFieldHook = __napiModule.exports.DisposableFieldHook
+module.exports.DisposableNonDisposable = __napiModule.exports.DisposableNonDisposable
+module.exports.DisposableRefHolder = __napiModule.exports.DisposableRefHolder
+module.exports.DisposableResource = __napiModule.exports.DisposableResource
+module.exports.DisposableSharedHolder = __napiModule.exports.DisposableSharedHolder
+module.exports.DisposableSibling = __napiModule.exports.DisposableSibling
+module.exports.DisposableWeakHolder = __napiModule.exports.DisposableWeakHolder
+module.exports.DisposableWithLifetime = __napiModule.exports.DisposableWithLifetime
+module.exports.DisposableZst = __napiModule.exports.DisposableZst
 module.exports.Dog = __napiModule.exports.Dog
 module.exports.EagerReleaseHolder = __napiModule.exports.EagerReleaseHolder
 module.exports.FailingAsyncGenerator = __napiModule.exports.FailingAsyncGenerator
@@ -2367,6 +2363,8 @@ module.exports.OptionalConditionalBeforeRequiredClass = __napiModule.exports.Opt
 module.exports.PackageJsonReader = __napiModule.exports.PackageJsonReader
 module.exports.Reader = __napiModule.exports.Reader
 module.exports.ReentrantBorrowOrderTest = __napiModule.exports.ReentrantBorrowOrderTest
+module.exports.RenamedDisposable = __napiModule.exports.RenamedDisposable
+module.exports.DisposableCustomJsName = __napiModule.exports.DisposableCustomJsName
 module.exports.RenamedForIssue3427 = __napiModule.exports.RenamedForIssue3427
 module.exports.RenamedForIssue3427Rust = __napiModule.exports.RenamedForIssue3427Rust
 module.exports.Selector = __napiModule.exports.Selector
@@ -2419,6 +2417,7 @@ module.exports.argRefsPendingForever = __napiModule.exports.argRefsPendingForeve
 module.exports.argRefsResolveNow = __napiModule.exports.argRefsResolveNow
 module.exports.argRefsSliceNow = __napiModule.exports.argRefsSliceNow
 module.exports.arrayBufferCopyFrom = __napiModule.exports.arrayBufferCopyFrom
+module.exports.arrayBufferCopyFromReadBack = __napiModule.exports.arrayBufferCopyFromReadBack
 module.exports.arrayBufferFromData = __napiModule.exports.arrayBufferFromData
 module.exports.arrayBufferFromExternal = __napiModule.exports.arrayBufferFromExternal
 module.exports.arrayBufferFromExternalReadBack = __napiModule.exports.arrayBufferFromExternalReadBack
@@ -2474,6 +2473,7 @@ module.exports.bufferValueBinding = __napiModule.exports.bufferValueBinding
 module.exports.bufferWithAsyncBlock = __napiModule.exports.bufferWithAsyncBlock
 module.exports.buildThreadsafeFunctionFromFunction = __napiModule.exports.buildThreadsafeFunctionFromFunction
 module.exports.buildThreadsafeFunctionFromFunctionCalleeHandle = __napiModule.exports.buildThreadsafeFunctionFromFunctionCalleeHandle
+module.exports.bumpDisposableMutRef = __napiModule.exports.bumpDisposableMutRef
 module.exports.call0 = __napiModule.exports.call0
 module.exports.call1 = __napiModule.exports.call1
 module.exports.call2 = __napiModule.exports.call2
@@ -2522,12 +2522,16 @@ module.exports.concatUtf16 = __napiModule.exports.concatUtf16
 module.exports.contains = __napiModule.exports.contains
 module.exports.convertU32Array = __napiModule.exports.convertU32Array
 module.exports.createArraybuffer = __napiModule.exports.createArraybuffer
+module.exports.createArraybufferOfSize = __napiModule.exports.createArraybufferOfSize
 module.exports.createBigInt = __napiModule.exports.createBigInt
 module.exports.createBigIntI64 = __napiModule.exports.createBigIntI64
 module.exports.createBufferSliceFromCopiedData = __napiModule.exports.createBufferSliceFromCopiedData
 module.exports.createBufferSliceOfSize = __napiModule.exports.createBufferSliceOfSize
 module.exports.createClosureReadingExternal = __napiModule.exports.createClosureReadingExternal
 module.exports.createDeferredThenFail = __napiModule.exports.createDeferredThenFail
+module.exports.createDisposableAlignedZst = __napiModule.exports.createDisposableAlignedZst
+module.exports.createDisposableByValue = __napiModule.exports.createDisposableByValue
+module.exports.createDisposableZst = __napiModule.exports.createDisposableZst
 module.exports.createDuplicateExternalRef = __napiModule.exports.createDuplicateExternalRef
 module.exports.createErrorFromRetainedValue = __napiModule.exports.createErrorFromRetainedValue
 module.exports.createErroringReadableStream = __napiModule.exports.createErroringReadableStream
@@ -2565,8 +2569,11 @@ module.exports.createStaticUtf16String = __napiModule.exports.createStaticUtf16S
 module.exports.createSymbol = __napiModule.exports.createSymbol
 module.exports.createSymbolFor = __napiModule.exports.createSymbolFor
 module.exports.createSymbolRef = __napiModule.exports.createSymbolRef
+module.exports.createUint16ArraySliceOfSize = __napiModule.exports.createUint16ArraySliceOfSize
+module.exports.createUint8ArraySliceOfSize = __napiModule.exports.createUint8ArraySliceOfSize
 module.exports.createUint8ClampedArrayFromData = __napiModule.exports.createUint8ClampedArrayFromData
 module.exports.createUint8ClampedArrayFromExternal = __napiModule.exports.createUint8ClampedArrayFromExternal
+module.exports.createUint8ClampedSliceOfSize = __napiModule.exports.createUint8ClampedSliceOfSize
 module.exports.createUseNullableStruct = __napiModule.exports.createUseNullableStruct
 module.exports.createZeroCopyLatin1String = __napiModule.exports.createZeroCopyLatin1String
 module.exports.createZeroCopyUtf16String = __napiModule.exports.createZeroCopyUtf16String
@@ -2632,6 +2639,12 @@ module.exports.getBuffer = __napiModule.exports.getBuffer
 module.exports.getBufferSlice = __napiModule.exports.getBufferSlice
 module.exports.getClassFromArray = __napiModule.exports.getClassFromArray
 module.exports.getCwd = __napiModule.exports.getCwd
+module.exports.getDisposableAlignedZstDropCount = __napiModule.exports.getDisposableAlignedZstDropCount
+module.exports.getDisposableDropCount = __napiModule.exports.getDisposableDropCount
+module.exports.getDisposableFinalizeCount = __napiModule.exports.getDisposableFinalizeCount
+module.exports.getDisposableSharedViewDropCount = __napiModule.exports.getDisposableSharedViewDropCount
+module.exports.getDisposableSharedViewDropObservation = __napiModule.exports.getDisposableSharedViewDropObservation
+module.exports.getDisposableZstDropCount = __napiModule.exports.getDisposableZstDropCount
 module.exports.getEmptyBuffer = __napiModule.exports.getEmptyBuffer
 module.exports.getEmptyTypedArray = __napiModule.exports.getEmptyTypedArray
 module.exports.getExternal = __napiModule.exports.getExternal
@@ -2663,6 +2676,7 @@ module.exports.i8ArrayToArray = __napiModule.exports.i8ArrayToArray
 module.exports.indexmapPassthrough = __napiModule.exports.indexmapPassthrough
 module.exports.indexSetToJs = __napiModule.exports.indexSetToJs
 module.exports.indexSetToRust = __napiModule.exports.indexSetToRust
+module.exports.intoInstanceDisposedInCallback = __napiModule.exports.intoInstanceDisposedInCallback
 module.exports.intoUtf8 = __napiModule.exports.intoUtf8
 module.exports.issue3427Either = __napiModule.exports.issue3427Either
 module.exports.issue3427Option = __napiModule.exports.issue3427Option
@@ -2719,6 +2733,7 @@ module.exports.objectWrapMismatchKeepsWrap = __napiModule.exports.objectWrapMism
 module.exports.objectWrapRoundtrip = __napiModule.exports.objectWrapRoundtrip
 module.exports.objectWrapWithA = __napiModule.exports.objectWrapWithA
 module.exports.openBorrowGate = __napiModule.exports.openBorrowGate
+module.exports.openDisposableAsyncGate = __napiModule.exports.openDisposableAsyncGate
 module.exports.optionalCallbackTypes = __napiModule.exports.optionalCallbackTypes
 module.exports.optionEnd = __napiModule.exports.optionEnd
 module.exports.optionOnly = __napiModule.exports.optionOnly
@@ -2748,6 +2763,10 @@ module.exports.readBorrowedCacheWithReentry = __napiModule.exports.readBorrowedC
 module.exports.readBorrowedCacheWithSignal = __napiModule.exports.readBorrowedCacheWithSignal
 module.exports.readBorrowedExternalAsyncFn = __napiModule.exports.readBorrowedExternalAsyncFn
 module.exports.readBorrowedExternalTask = __napiModule.exports.readBorrowedExternalTask
+module.exports.readDisposableInstance = __napiModule.exports.readDisposableInstance
+module.exports.readDisposableInstanceFromObjectProperty = __napiModule.exports.readDisposableInstanceFromObjectProperty
+module.exports.readDisposableRef = __napiModule.exports.readDisposableRef
+module.exports.readDisposableRefStrict = __napiModule.exports.readDisposableRefStrict
 module.exports.readerWakerClonesAfterRead = __napiModule.exports.readerWakerClonesAfterRead
 module.exports.readFile = __napiModule.exports.readFile
 module.exports.readFileAsync = __napiModule.exports.readFileAsync
@@ -2771,6 +2790,7 @@ module.exports.REENTRY_GATE = __napiModule.exports.REENTRY_GATE
 module.exports.referenceAsCallback = __napiModule.exports.referenceAsCallback
 module.exports.referenceWithTupleArg = __napiModule.exports.referenceWithTupleArg
 module.exports.reflectRefsDeletedAtTeardown = __napiModule.exports.reflectRefsDeletedAtTeardown
+module.exports.releaseDisposableAsyncGate = __napiModule.exports.releaseDisposableAsyncGate
 module.exports.removeWrappedObjectAsU8Rejected = __napiModule.exports.removeWrappedObjectAsU8Rejected
 module.exports.returnCString = __napiModule.exports.returnCString
 module.exports.returnEither = __napiModule.exports.returnEither
@@ -2857,13 +2877,16 @@ module.exports.u64ArrayToArray = __napiModule.exports.u64ArrayToArray
 module.exports.u8ArrayToArray = __napiModule.exports.u8ArrayToArray
 module.exports.uInit8ArrayFromString = __napiModule.exports.uInit8ArrayFromString
 module.exports.uint16ArraySliceCopyFrom = __napiModule.exports.uint16ArraySliceCopyFrom
+module.exports.uint16ArraySliceCopyFromReadBack = __napiModule.exports.uint16ArraySliceCopyFromReadBack
 module.exports.uint16ArraySync = __napiModule.exports.uint16ArraySync
 module.exports.uint16ArraySyncAfterCallback = __napiModule.exports.uint16ArraySyncAfterCallback
 module.exports.uint8ArrayFromData = __napiModule.exports.uint8ArrayFromData
 module.exports.uint8ArrayFromExternal = __napiModule.exports.uint8ArrayFromExternal
 module.exports.uint8ArraySliceCopyFrom = __napiModule.exports.uint8ArraySliceCopyFrom
+module.exports.uint8ArraySliceCopyFromReadBack = __napiModule.exports.uint8ArraySliceCopyFromReadBack
 module.exports.uint8ArraySliceFromExternalReadBack = __napiModule.exports.uint8ArraySliceFromExternalReadBack
 module.exports.uint8ClampedSliceCopyFrom = __napiModule.exports.uint8ClampedSliceCopyFrom
+module.exports.uint8ClampedSliceCopyFromReadBack = __napiModule.exports.uint8ClampedSliceCopyFromReadBack
 module.exports.uint8ClampedSliceFromExternalReadBack = __napiModule.exports.uint8ClampedSliceFromExternalReadBack
 module.exports.unwrapObjectAsARejected = __napiModule.exports.unwrapObjectAsARejected
 module.exports.unwrapObjectAsTypeTagARejected = __napiModule.exports.unwrapObjectAsTypeTagARejected
@@ -2892,10 +2915,12 @@ module.exports.validateTypedArray = __napiModule.exports.validateTypedArray
 module.exports.validateTypedArraySlice = __napiModule.exports.validateTypedArraySlice
 module.exports.validateUint8ClampedSlice = __napiModule.exports.validateUint8ClampedSlice
 module.exports.validateUndefined = __napiModule.exports.validateUndefined
+module.exports.waitDisposableAsyncGateEntered = __napiModule.exports.waitDisposableAsyncGateEntered
 module.exports.waitForBorrowGateWaiters = __napiModule.exports.waitForBorrowGateWaiters
 module.exports.wasmMemorySizeBytes = __napiModule.exports.wasmMemorySizeBytes
 module.exports.withAbortController = __napiModule.exports.withAbortController
 module.exports.withAbortSignalHandle = __napiModule.exports.withAbortSignalHandle
+module.exports.withDisposableInstanceCallback = __napiModule.exports.withDisposableInstanceCallback
 module.exports.withinAsyncRuntimeIfAvailable = __napiModule.exports.withinAsyncRuntimeIfAvailable
 module.exports.withoutAbortController = __napiModule.exports.withoutAbortController
 module.exports.xxh64Alias = __napiModule.exports.xxh64Alias

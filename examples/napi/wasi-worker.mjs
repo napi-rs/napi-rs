@@ -18,13 +18,7 @@ try {
     getDefaultContext,
     emnapiAsyncWorkPlugin,
     emnapiTSFNPlugin,
-  } = require('@napi-rs/wasm-runtime')
-
-  if (parentPort) {
-    parentPort.on('message', (data) => {
-      globalThis.onmessage({ data })
-    })
-  }
+  } = await import('@napi-rs/wasm-runtime')
 
   Object.assign(globalThis, {
     self: globalThis,
@@ -183,4 +177,10 @@ function __writeCrashReport(report, error) {
 
 globalThis.onmessage = function (e) {
   handler.handle(e)
+}
+
+if (parentPort) {
+  parentPort.on('message', (data) => {
+    globalThis.onmessage({ data })
+  })
 }
