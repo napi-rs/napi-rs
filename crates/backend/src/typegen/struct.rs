@@ -276,7 +276,7 @@ impl NapiStruct {
       }
       NapiStructKind::Class(class) => {
         let mut ctor_args = vec![];
-        let def = class
+        let mut lines = class
           .fields
           .iter()
           .filter(|f| f.getter)
@@ -288,8 +288,7 @@ impl NapiStruct {
               f.symbol_for.is_none().then_some(field)
             })
           })
-          .collect::<Vec<_>>()
-          .join("\n");
+          .collect::<Vec<_>>();
         if class.ctor {
           // TS1016: a required parameter cannot follow an optional one, so an
           // optional field before the last required field drops its `?`.
@@ -304,14 +303,12 @@ impl NapiStruct {
               _ => arg,
             })
             .collect::<Vec<_>>();
-          if def.is_empty() {
-            format!("constructor({})", ctor_args.join(", "))
-          } else {
-            format!("{}\nconstructor({})", def, ctor_args.join(", "))
-          }
-        } else {
-          def
+          lines.push(format!("constructor({})", ctor_args.join(", ")));
         }
+        if class.disposable {
+          lines.push("[globalThis.Symbol.dispose](): void".to_owned());
+        }
+        lines.join("\n")
       }
       NapiStructKind::Object(object) => object
         .fields

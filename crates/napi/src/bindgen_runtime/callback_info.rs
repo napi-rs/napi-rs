@@ -320,11 +320,20 @@ impl<const N: usize> CallbackInfo<N> {
     let mut wrapped_val: *mut c_void = std::ptr::null_mut();
 
     unsafe {
-      check_status!(
-        sys::napi_unwrap(self.env, self.this, &mut wrapped_val),
-        "Failed to unwrap exclusive reference of `{}` type from napi value",
-        T::type_name(),
-      )?;
+      let status = sys::napi_unwrap(self.env, self.this, &mut wrapped_val);
+      if status != sys::Status::napi_ok {
+        return Err(map_class_unwrap_error::<T>(
+          self.env,
+          self.this,
+          status,
+          || {
+            format!(
+              "Failed to unwrap exclusive reference of `{}` type from napi value",
+              T::type_name()
+            )
+          },
+        ));
+      }
 
       // Reject a spoofed receiver (`ClassA.prototype.method.call(new ClassB())`)
       // before the blind cast below. On Node this wrong receiver is *also*

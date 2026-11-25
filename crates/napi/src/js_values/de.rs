@@ -57,10 +57,11 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
           visitor.visit_bytes(&unsafe { BufferSlice::from_napi_value(self.0.env, self.0.value)? })
         } else if js_object.is_arraybuffer()? {
           let array_buf = unsafe { ArrayBuffer::from_napi_value(self.0.env, self.0.value)? };
-          if array_buf.data.is_empty() {
+          let bytes = array_buf.as_ref();
+          if bytes.is_empty() {
             return visitor.visit_bytes(&[]);
           }
-          visitor.visit_bytes(array_buf.data)
+          visitor.visit_bytes(bytes)
         } else {
           let mut deserializer = JsObjectAccess::new(&js_object)?;
           visitor.visit_map(&mut deserializer)
@@ -114,10 +115,11 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
             .visit_bytes(&unsafe { BufferSlice::from_napi_value(self.0.env, self.0.value)? });
         } else if js_object.is_arraybuffer()? {
           let array_buf = unsafe { ArrayBuffer::from_napi_value(self.0.env, self.0.value)? };
-          if array_buf.data.is_empty() {
+          let bytes = array_buf.as_ref();
+          if bytes.is_empty() {
             return visitor.visit_bytes(&[]);
           }
-          return visitor.visit_bytes(array_buf.data);
+          return visitor.visit_bytes(bytes);
         }
         visitor.visit_bytes(unsafe { FromNapiValue::from_napi_value(self.0.env, self.0.value)? })
       }
@@ -147,10 +149,11 @@ impl<'x> serde::de::Deserializer<'x> for &mut De<'_> {
           });
         } else if js_object.is_arraybuffer()? {
           let array_buf = unsafe { ArrayBuffer::from_napi_value(self.0.env, self.0.value)? };
-          if array_buf.data.is_empty() {
+          let bytes = array_buf.as_ref();
+          if bytes.is_empty() {
             return visitor.visit_byte_buf(Vec::new());
           }
-          return visitor.visit_byte_buf(array_buf.data.to_vec());
+          return visitor.visit_byte_buf(bytes.to_vec());
         }
         visitor.visit_byte_buf(unsafe { FromNapiValue::from_napi_value(self.0.env, self.0.value)? })
       }

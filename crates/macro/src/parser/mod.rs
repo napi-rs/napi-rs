@@ -24,7 +24,9 @@ use syn::{
   PathArguments, PathSegment, Signature, Token, Type, Visibility,
 };
 
-use crate::parser::attrs::{check_recorded_struct_for_impl, record_struct};
+use crate::parser::attrs::{
+  check_recorded_struct_for_impl, is_recorded_struct_disposable, record_struct,
+};
 
 /// Stores (is_sync_generator, is_async_generator) for each struct
 static GENERATOR_STRUCT: OnceLock<Mutex<HashMap<String, (bool, bool)>>> = OnceLock::new();
@@ -639,6 +641,12 @@ fn napi_fn_from_decl(
   parent: Option<&Ident>,
   parent_js_name: Option<String>,
 ) -> BindgenResult<NapiFn> {
+  if let Some(span) = opts.disposable() {
+    return Err(Diagnostic::span_error(
+      *span,
+      "#[napi(disposable)] can only be applied to a class struct",
+    ));
+  }
   let symbol_for = opts
     .symbol_for()
     .map(|(name, span)| (name.to_owned(), span));
@@ -1102,6 +1110,19 @@ impl ParseNapi for syn::ItemStruct {
     if opts.object().is_some() && opts.custom_finalize().is_some() {
       bail_span!(self, "Custom finalize is not supported for #[napi(object)]");
     }
+    if let Some(span) = opts.disposable() {
+      if opts.object().is_some()
+        || opts.array().is_some()
+        || opts.transparent().is_some()
+        || opts.iterator().is_some()
+        || opts.async_iterator().is_some()
+      {
+        return Err(Diagnostic::span_error(
+          *span,
+          "#[napi(disposable)] can only be applied to a class struct without object, array, transparent, iterator, or async_iterator",
+        ));
+      }
+    }
     let napi = self.convert_to_ast(opts);
     self.to_tokens(tokens);
 
@@ -1121,6 +1142,12 @@ impl ParseNapi for syn::ItemImpl {
         self,
         "#[napi] can't be applied to impl with #[napi(ts_args_type)], #[napi(ts_return_type)], #[napi(skip_typescript)] or #[napi(ts_type)] or #[napi(custom_finalize)]"
       );
+    }
+    if let Some(span) = opts.disposable() {
+      return Err(Diagnostic::span_error(
+        *span,
+        "#[napi(disposable)] can only be applied to a class struct",
+      ));
     }
     if opts.return_if_invalid().is_some() {
       bail_span!(
@@ -1160,6 +1187,12 @@ impl ParseNapi for syn::ItemEnum {
         "#[napi] can't be applied to a enum with #[napi(ts_args_type)], #[napi(ts_return_type)] or #[napi(ts_type)] or #[napi(custom_finalize)]"
       );
     }
+    if let Some(span) = opts.disposable() {
+      return Err(Diagnostic::span_error(
+        *span,
+        "#[napi(disposable)] can only be applied to a class struct",
+      ));
+    }
     if opts.return_if_invalid().is_some() {
       bail_span!(
         self,
@@ -1196,6 +1229,12 @@ impl ParseNapi for syn::ItemConst {
         "#[napi] can't be applied to a const with #[napi(ts_args_type)], #[napi(ts_return_type)] or #[napi(ts_type)] or #[napi(custom_finalize)]"
       );
     }
+    if let Some(span) = opts.disposable() {
+      return Err(Diagnostic::span_error(
+        *span,
+        "#[napi(disposable)] can only be applied to a class struct",
+      ));
+    }
     if opts.return_if_invalid().is_some() {
       bail_span!(
         self,
@@ -1230,6 +1269,12 @@ impl ParseNapi for syn::ItemType {
         self,
         "#[napi] can't be applied to a type with #[napi(ts_args_type)], #[napi(ts_return_type)] or #[napi(custom_finalize)]"
       );
+    }
+    if let Some(span) = opts.disposable() {
+      return Err(Diagnostic::span_error(
+        *span,
+        "#[napi(disposable)] can only be applied to a class struct",
+      ));
     }
     if opts.return_if_invalid().is_some() {
       bail_span!(
@@ -1307,6 +1352,13 @@ fn convert_fields(
     }
 
     let field_opts = BindgenAttrs::find(&mut field.attrs)?;
+
+    if let Some(span) = field_opts.disposable() {
+      return Err(Diagnostic::span_error(
+        *span,
+        "#[napi(disposable)] can only be applied to a class struct",
+      ));
+    }
 
     let symbol_for = field_opts
       .symbol_for()
@@ -1417,11 +1469,24 @@ impl ConvertToAST for syn::ItemStruct {
     );
 
     let use_nullable = opts.use_nullable();
+    let disposable = opts.disposable().is_some();
     let (fields, is_tuple) = convert_fields(
       &mut self.fields,
       true,
       opts.object().is_none() && opts.array().is_none() && opts.transparent().is_none(),
     )?;
+
+    if disposable {
+      if let Some(span) = fields.iter().find_map(|f| match &f.well_known_symbol {
+        Some((name, span)) if name == "dispose" => Some(*span),
+        _ => None,
+      }) {
+        return Err(Diagnostic::span_error(
+          span,
+          "#[napi(disposable)] already defines [Symbol.dispose] on this class; remove well_known_symbol = \"dispose\" on this field",
+        ));
+      }
+    }
 
     record_struct(&rust_struct_ident, final_js_name_for_struct.clone(), opts);
     let namespace = opts.namespace().map(|(m, _)| m.to_owned());
@@ -1533,6 +1598,7 @@ impl ConvertToAST for syn::ItemStruct {
         implement_async_iterator,
         is_tuple,
         use_custom_finalize: opts.custom_finalize().is_some(),
+        disposable,
       })
     };
 
@@ -1606,6 +1672,7 @@ impl ConvertToAST for syn::ItemImpl {
         Ok(recorded_js_name) => recorded_js_name,
         Err(_) => to_case(struct_name.to_string(), Case::UpperCamel),
       };
+    let parent_is_disposable = is_recorded_struct_disposable(&struct_name);
     let mut items = vec![];
     let mut task_output_type = None;
     let mut iterator_yield_type = None;
@@ -1679,6 +1746,19 @@ impl ConvertToAST for syn::ItemImpl {
           Some(&struct_name),
           Some(struct_js_name.clone()),
         )?;
+
+        if parent_is_disposable
+          && (func.fn_self.is_some() || matches!(func.kind, FnKind::Getter | FnKind::Setter))
+        {
+          if let Some((name, span)) = &func.well_known_symbol {
+            if name == "dispose" {
+              return Err(Diagnostic::span_error(
+                *span,
+                "#[napi(disposable)] already defines [Symbol.dispose] on this class; remove well_known_symbol = \"dispose\" on this member",
+              ));
+            }
+          }
+        }
 
         items.push(func);
       }

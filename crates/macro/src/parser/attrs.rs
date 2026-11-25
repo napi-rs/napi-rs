@@ -25,6 +25,7 @@ struct StructParseState {
 struct ParsedStruct {
   js_name: String,
   ctor_defined: bool,
+  disposable: bool,
 }
 
 #[derive(Default)]
@@ -71,6 +72,7 @@ macro_rules! attrgen {
       (object_from_js, ObjectFromJs(Span, Option<bool>), true),
       (object_to_js, ObjectToJs(Span, Option<bool>), true),
       (custom_finalize, CustomFinalize(Span)),
+      (disposable, Disposable(Span)),
       (namespace, Namespace(Span, String, Span)),
       (type_tag, TypeTag(Span, String, Span)),
       (iterator, Iterator(Span)),
@@ -385,8 +387,17 @@ pub fn record_struct(ident: &Ident, js_name: String, opts: &BindgenAttrs) {
     ParsedStruct {
       js_name,
       ctor_defined: opts.constructor().is_some(),
+      disposable: opts.disposable().is_some(),
     },
   );
+}
+
+pub fn is_recorded_struct_disposable(ident: &Ident) -> bool {
+  let state = STRUCTS.get_or_init(StructParseState::default);
+  let map = state.parsed.lock().unwrap();
+  map
+    .get(&ident.to_string())
+    .is_some_and(|parsed| parsed.disposable)
 }
 
 pub fn check_recorded_struct_for_impl(ident: &Ident, opts: &BindgenAttrs) -> BindgenResult<String> {

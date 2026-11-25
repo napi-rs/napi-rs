@@ -11,5 +11,6 @@ pub mod ts_arg_type_2;
 pub mod ts_arg_type_3;
 pub mod ts_arg_type_4;
 
+mod disposable_invalid;
 mod symbol_for_invalid;
 mod well_known_symbol_invalid;

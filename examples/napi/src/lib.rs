@@ -104,6 +104,7 @@ mod constructor;
 mod date;
 mod deferred_drop;
 mod define_class_closure;
+mod disposable;
 mod either;
 mod r#enum;
 mod env;

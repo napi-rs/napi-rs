@@ -612,6 +612,58 @@ pub fn float64_array_slice_copy_from(
   Ok(output)
 }
 
+#[napi]
+pub fn create_arraybuffer_of_size(env: &Env, size: u32) -> Result<ArrayBuffer<'_>> {
+  let data = vec![0x5au8; size as usize];
+  ArrayBuffer::copy_from(env, &data)
+}
+
+#[napi]
+pub fn create_uint8_array_slice_of_size(env: &Env, size: u32) -> Result<Uint8ArraySlice<'_>> {
+  let data = vec![0x5au8; size as usize];
+  Uint8ArraySlice::copy_from(env, &data)
+}
+
+#[napi]
+pub fn create_uint16_array_slice_of_size(env: &Env, size: u32) -> Result<Uint16ArraySlice<'_>> {
+  let data = vec![0x5a5au16; size as usize];
+  Uint16ArraySlice::copy_from(env, &data)
+}
+
+#[napi]
+pub fn create_uint8_clamped_slice_of_size(env: &Env, size: u32) -> Result<Uint8ClampedSlice<'_>> {
+  let data = vec![0x5au8; size as usize];
+  Uint8ClampedSlice::copy_from(env, &data)
+}
+
+#[napi]
+pub fn array_buffer_copy_from_read_back(env: &Env, mut data: Vec<u8>) -> Result<Vec<u8>> {
+  let output = ArrayBuffer::copy_from(env, &data)?;
+  data.fill(0);
+  Ok(output.to_vec())
+}
+
+#[napi]
+pub fn uint8_array_slice_copy_from_read_back(env: &Env, mut data: Vec<u8>) -> Result<Vec<u8>> {
+  let output = Uint8ArraySlice::copy_from(env, &data)?;
+  data.fill(0);
+  Ok(output.to_vec())
+}
+
+#[napi]
+pub fn uint16_array_slice_copy_from_read_back(env: &Env, mut data: Vec<u16>) -> Result<Vec<u16>> {
+  let output = Uint16ArraySlice::copy_from(env, &data)?;
+  data.fill(0);
+  Ok(output.to_vec())
+}
+
+#[napi]
+pub fn uint8_clamped_slice_copy_from_read_back(env: &Env, mut data: Vec<u8>) -> Result<Vec<u8>> {
+  let output = Uint8ClampedSlice::copy_from(env, &data)?;
+  data.fill(0);
+  Ok(output.to_vec())
+}
+
 // On wasm, `as_mut()` writes reach the JS view only through `sync()`.
 
 #[napi]

@@ -204,11 +204,14 @@ where
 impl<'env, T: 'env + MaybeTypeTag> FromNapiValue for ClassInstance<'env, T> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
     let mut value = ptr::null_mut();
-    check_status!(
-      unsafe { sys::napi_unwrap(env, napi_val, &mut value) },
-      "Unwrap value [{}] from class failed",
-      type_name::<T>(),
-    )?;
+    let status = unsafe { sys::napi_unwrap(env, napi_val, &mut value) };
+    if status != sys::Status::napi_ok {
+      return Err(unsafe {
+        crate::bindgen_runtime::map_class_unwrap_error::<T>(env, napi_val, status, || {
+          format!("Unwrap value [{}] from class failed", type_name::<T>())
+        })
+      });
+    }
 
     // Reject a wrong-class / prototype-spoofed object before the blind cast.
     // The tag check is compiled only on napi8 NATIVE targets (the
@@ -219,6 +222,13 @@ impl<'env, T: 'env + MaybeTypeTag> FromNapiValue for ClassInstance<'env, T> {
       crate::bindgen_runtime::validate_type_tag(env, napi_val, &T::type_tag(), type_name::<T>())?;
     }
     check_class_identity::<T>(value, type_name::<T>)?;
+
+    // For disposable classes, pin the wrapped allocation while an outer
+    // argument-conversion borrow scope is collecting (and not behind a barrier),
+    // so re-entrant `[Symbol.dispose]()` defers until the call finishes.
+    if crate::bindgen_runtime::is_disposable_class::<T>() {
+      unsafe { crate::bindgen_runtime::try_pin_disposable_in_scope(env, napi_val, value)? };
+    }
 
     let value = unsafe { Box::from_raw(value as *mut T) };
     Ok(Self {

@@ -129,6 +129,7 @@ pub struct NapiClass {
   pub implement_async_iterator: bool,
   pub is_tuple: bool,
   pub use_custom_finalize: bool,
+  pub disposable: bool,
 }
 
 #[derive(Debug, Clone)]

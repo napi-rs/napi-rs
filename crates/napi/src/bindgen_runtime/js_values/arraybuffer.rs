@@ -1,3 +1,5 @@
+#[cfg(target_family = "wasm")]
+use std::cell::Cell;
 use std::ffi::{c_void, CString};
 use std::marker::PhantomData;
 use std::mem;
@@ -95,20 +97,9 @@ extern "C" {
   ) -> crate::sys::napi_status;
 }
 
-#[cfg(target_family = "wasm")]
-fn sync_copied_arraybuffer(
-  env: sys::napi_env,
-  arraybuffer: &mut sys::napi_value,
-  byte_length: usize,
-) -> Result<()> {
-  check_status!(
-    unsafe { emnapi_sync_memory(env, false, arraybuffer, 0, byte_length) },
-    "Failed to sync ArrayBuffer memory"
-  )
-}
-
 /// Create an engine-owned `ArrayBuffer` that holds a copy of `bytes`, and
 /// return it with its data pointer.
+#[cfg(not(target_family = "wasm"))]
 fn create_arraybuffer_copy(
   env: sys::napi_env,
   bytes: &[u8],
@@ -120,23 +111,54 @@ fn create_arraybuffer_copy(
     unsafe { sys::napi_create_arraybuffer(env, len, &mut underlying_data, &mut arraybuffer_value) },
     "Failed to create ArrayBuffer"
   )?;
-  // Skip empty input: the data pointer is null then, and emnapi throws
-  // "Unknown ArrayBuffer address" when asked to sync an empty buffer.
   if len > 0 {
     unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), underlying_data.cast(), len) };
-    // Under emnapi the data pointer is a separate wasm-side copy of the new JS
-    // buffer, so the bytes written there must be pushed to JS.
-    #[cfg(target_family = "wasm")]
-    sync_copied_arraybuffer(env, &mut arraybuffer_value, len)?;
   }
   Ok((arraybuffer_value, underlying_data))
 }
 
-#[derive(Clone, Copy)]
+/// Create a pure JS-owned `ArrayBuffer` holding a copy of `bytes` directly via
+/// `emnapi_create_arraybuffer_copy`, avoiding any wasm linear-memory mirror or
+/// `FinalizationRegistry` entry unless Rust actually dereferences the slice.
+#[cfg(target_family = "wasm")]
+fn create_arraybuffer_copy(env: sys::napi_env, bytes: &[u8]) -> Result<sys::napi_value> {
+  let len = bytes.len();
+  let mut arraybuffer_value = ptr::null_mut();
+  check_status!(
+    unsafe {
+      sys::emnapi_create_arraybuffer_copy(
+        env,
+        if len == 0 {
+          ptr::null()
+        } else {
+          bytes.as_ptr().cast()
+        },
+        len,
+        &mut arraybuffer_value,
+      )
+    },
+    "Failed to create ArrayBuffer"
+  )?;
+  Ok(arraybuffer_value)
+}
+
+#[derive(Clone)]
+#[cfg_attr(not(target_family = "wasm"), derive(Copy))]
 /// Represents a JavaScript ArrayBuffer
 pub struct ArrayBuffer<'env> {
   pub(crate) value: Value,
+  #[cfg(not(target_family = "wasm"))]
   pub(crate) data: &'env [u8],
+  // On wasm, `emnapi_create_arraybuffer_copy` creates a pure JS-owned `ArrayBuffer`
+  // with no wasm linear-memory mirror. Keep the pointer lazy so `napi_get_arraybuffer_info`
+  // (which allocates a `_malloc`'d mirror and registers a `FinalizationRegistry` cleanup
+  // under emnapi) only runs if Rust actually dereferences the buffer.
+  #[cfg(target_family = "wasm")]
+  pub(crate) data: Cell<Option<NonNull<u8>>>,
+  #[cfg(target_family = "wasm")]
+  pub(crate) len: usize,
+  #[cfg(target_family = "wasm")]
+  _marker: PhantomData<&'env [u8]>,
 }
 
 impl<'env> JsValue<'env> for ArrayBuffer<'env> {
@@ -169,14 +191,21 @@ impl FromNapiValue for ArrayBuffer<'_> {
     check_status!(unsafe {
       sys::napi_get_arraybuffer_info(env, napi_val, &mut data, &mut byte_length)
     })?;
-    Ok(ArrayBuffer {
+    #[cfg(not(target_family = "wasm"))]
+    return Ok(ArrayBuffer {
       value,
       data: if data.is_null() {
         &[]
       } else {
         unsafe { std::slice::from_raw_parts(data as *const u8, byte_length) }
       },
-    })
+    });
+    #[cfg(target_family = "wasm")]
+    Ok(ArrayBuffer::from_raw_wasm(
+      value,
+      Some(data.cast()),
+      if data.is_null() { 0 } else { byte_length },
+    ))
   }
 }
 
@@ -184,11 +213,55 @@ impl Deref for ArrayBuffer<'_> {
   type Target = [u8];
 
   fn deref(&self) -> &Self::Target {
-    self.data
+    #[cfg(not(target_family = "wasm"))]
+    {
+      self.data
+    }
+    #[cfg(target_family = "wasm")]
+    {
+      if self.len == 0 {
+        &[]
+      } else {
+        unsafe { std::slice::from_raw_parts(self.data_ptr().as_ptr(), self.len) }
+      }
+    }
   }
 }
 
 impl<'env> ArrayBuffer<'env> {
+  #[cfg(target_family = "wasm")]
+  #[inline]
+  fn from_raw_wasm(value: Value, data_ptr: Option<*mut u8>, len: usize) -> Self {
+    Self {
+      value,
+      data: Cell::new(if len == 0 {
+        None
+      } else {
+        data_ptr.and_then(NonNull::new)
+      }),
+      len,
+      _marker: PhantomData,
+    }
+  }
+
+  #[cfg(target_family = "wasm")]
+  fn data_ptr(&self) -> NonNull<u8> {
+    if let Some(ptr) = self.data.get() {
+      return ptr;
+    }
+    let mut data = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_get_arraybuffer_info(self.value.env, self.value.value, &mut data, ptr::null_mut())
+      },
+      "Failed to get ArrayBuffer pointer"
+    )
+    .expect("Failed to get ArrayBuffer pointer");
+    let ptr = NonNull::new(data.cast()).expect("Non-empty ArrayBuffer has null data pointer");
+    self.data.set(Some(ptr));
+    ptr
+  }
+
   /// Create a new `ArrayBuffer` from a `Vec<u8>`.
   pub fn from_data<D: Into<Vec<u8>>>(env: &Env, data: D) -> Result<Self> {
     let mut buf = ptr::null_mut();
@@ -235,18 +308,22 @@ impl<'env> ArrayBuffer<'env> {
       check_status!(status, "Failed to create arraybuffer")?;
       mem::forget(data);
     }
-    Ok(Self {
-      value: Value {
-        env: env.0,
-        value: buf,
-        value_type: ValueType::Object,
-      },
+    let value = Value {
+      env: env.0,
+      value: buf,
+      value_type: ValueType::Object,
+    };
+    #[cfg(not(target_family = "wasm"))]
+    return Ok(Self {
+      value,
       data: if len == 0 {
         &[]
       } else {
         unsafe { std::slice::from_raw_parts(inner_ptr.cast(), len) }
       },
-    })
+    });
+    #[cfg(target_family = "wasm")]
+    Ok(Self::from_raw_wasm(value, Some(inner_ptr), len))
   }
 
   /// Mostly the same with `from_data`
@@ -324,38 +401,58 @@ impl<'env> ArrayBuffer<'env> {
       check_status!(status, "Failed to create arraybuffer from data")?;
     }
 
-    Ok(Self {
-      value: Value {
-        env: env.0,
-        value: arraybuffer_value,
-        value_type: ValueType::Object,
-      },
+    let value = Value {
+      env: env.0,
+      value: arraybuffer_value,
+      value_type: ValueType::Object,
+    };
+    #[cfg(not(target_family = "wasm"))]
+    return Ok(Self {
+      value,
       data: if len == 0 {
         &[]
       } else {
         unsafe { std::slice::from_raw_parts(data_ptr, len) }
       },
-    })
+    });
+    #[cfg(target_family = "wasm")]
+    Ok(Self::from_raw_wasm(value, Some(data_ptr), len))
   }
 
   /// Copy data from a `&[u8]` and create a `ArrayBuffer` from it.
   pub fn copy_from<D: AsRef<[u8]>>(env: &Env, data: D) -> Result<Self> {
     let data = data.as_ref();
     let len = data.len();
-    let (arraybuffer_value, underlying_data) = create_arraybuffer_copy(env.0, data)?;
+    #[cfg(not(target_family = "wasm"))]
+    {
+      let (arraybuffer_value, underlying_data) = create_arraybuffer_copy(env.0, data)?;
 
-    Ok(Self {
-      value: Value {
-        env: env.0,
-        value: arraybuffer_value,
-        value_type: ValueType::Object,
-      },
-      data: if len == 0 {
-        &[]
-      } else {
-        unsafe { std::slice::from_raw_parts(underlying_data.cast(), len) }
-      },
-    })
+      Ok(Self {
+        value: Value {
+          env: env.0,
+          value: arraybuffer_value,
+          value_type: ValueType::Object,
+        },
+        data: if len == 0 {
+          &[]
+        } else {
+          unsafe { std::slice::from_raw_parts(underlying_data.cast(), len) }
+        },
+      })
+    }
+    #[cfg(target_family = "wasm")]
+    {
+      let arraybuffer_value = create_arraybuffer_copy(env.0, data)?;
+      Ok(Self::from_raw_wasm(
+        Value {
+          env: env.0,
+          value: arraybuffer_value,
+          value_type: ValueType::Object,
+        },
+        None,
+        len,
+      ))
+    }
   }
 
   #[cfg(feature = "napi7")]
@@ -385,11 +482,23 @@ impl<'env> ArrayBuffer<'env> {
   /// This is literally undefined behavior, as the JS side may always modify the underlying buffer,
   /// without synchronization.
   pub unsafe fn as_mut(&mut self) -> &mut [u8] {
-    std::slice::from_raw_parts_mut(self.data.as_ptr() as *mut u8, self.data.len())
+    #[cfg(not(target_family = "wasm"))]
+    {
+      std::slice::from_raw_parts_mut(self.data.as_ptr() as *mut u8, self.data.len())
+    }
+    #[cfg(target_family = "wasm")]
+    {
+      if self.len == 0 {
+        &mut []
+      } else {
+        unsafe { std::slice::from_raw_parts_mut(self.data_ptr().as_ptr(), self.len) }
+      }
+    }
   }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
+#[cfg_attr(not(target_family = "wasm"), derive(Copy))]
 /// Represents a JavaScript ArrayBuffer
 pub struct TypedArray<'env> {
   pub(crate) value: Value,
@@ -496,13 +605,29 @@ impl FromNapiValue for TypedArray<'_> {
       },
       typed_array_type: typed_array_type.into(),
       byte_offset,
-      arraybuffer: ArrayBuffer {
-        value,
-        data: if data.is_null() {
-          &[]
-        } else {
-          unsafe { std::slice::from_raw_parts(data as *const u8, byte_length) }
-        },
+      arraybuffer: {
+        #[cfg(not(target_family = "wasm"))]
+        {
+          ArrayBuffer {
+            value,
+            data: if data.is_null() {
+              &[]
+            } else {
+              unsafe { std::slice::from_raw_parts(data as *const u8, byte_length) }
+            },
+          }
+        }
+        #[cfg(target_family = "wasm")]
+        {
+          // CRITICAL: `value` holds the `TypedArray` handle (not the underlying
+          // `ArrayBuffer` handle), so the pointer MUST be initialized eagerly here
+          // and never lazily resolved via `napi_get_arraybuffer_info`.
+          ArrayBuffer::from_raw_wasm(
+            value,
+            Some(data.cast()),
+            if data.is_null() { 0 } else { byte_length },
+          )
+        }
       },
     })
   }
@@ -1031,9 +1156,13 @@ macro_rules! impl_typed_array {
 
 macro_rules! impl_from_slice {
   ($name:ident, $slice_type:ident, $rust_type:ident, $typed_array_type:expr) => {
-    #[derive(Clone, Copy)]
+    #[derive(Clone)]
+    #[cfg_attr(not(target_family = "wasm"), derive(Copy))]
     pub struct $slice_type<'env> {
+      #[cfg(not(target_family = "wasm"))]
       pub(crate) inner: NonNull<$rust_type>,
+      #[cfg(target_family = "wasm")]
+      pub(crate) inner: Cell<Option<NonNull<$rust_type>>>,
       pub(crate) length: usize,
       raw_value: sys::napi_value,
       env: sys::napi_env,
@@ -1041,6 +1170,53 @@ macro_rules! impl_from_slice {
     }
 
     impl <'env> $slice_type<'env> {
+      #[cfg(target_family = "wasm")]
+      #[inline]
+      fn from_raw_wasm(
+        env: sys::napi_env,
+        raw_value: sys::napi_value,
+        data_ptr: Option<*mut $rust_type>,
+        length: usize,
+      ) -> Self {
+        Self {
+          inner: Cell::new(if length == 0 {
+            None
+          } else {
+            data_ptr.and_then(NonNull::new)
+          }),
+          length,
+          raw_value,
+          env,
+          _marker: PhantomData,
+        }
+      }
+
+      #[cfg(target_family = "wasm")]
+      fn data_ptr(&self) -> NonNull<$rust_type> {
+        if let Some(ptr) = self.inner.get() {
+          return ptr;
+        }
+        let mut data = ptr::null_mut();
+        check_status!(
+          unsafe {
+            sys::napi_get_typedarray_info(
+              self.env,
+              self.raw_value,
+              ptr::null_mut(),
+              ptr::null_mut(),
+              &mut data,
+              ptr::null_mut(),
+              ptr::null_mut(),
+            )
+          },
+          "Get TypedArray info failed"
+        )
+        .expect("Get TypedArray info failed");
+        let ptr = NonNull::new(data.cast()).expect("Non-empty TypedArray has null data pointer");
+        self.inner.set(Some(ptr));
+        ptr
+      }
+
       #[doc = " Create a new `"]
       #[doc = stringify!($slice_type)]
       #[doc = "` from a `Vec<"]
@@ -1114,7 +1290,8 @@ macro_rules! impl_from_slice {
           "Create TypedArray failed"
         )?;
 
-        Ok(Self {
+        #[cfg(not(target_family = "wasm"))]
+        return Ok(Self {
           inner: if len == 0 {
             NonNull::dangling()
           } else {
@@ -1124,7 +1301,9 @@ macro_rules! impl_from_slice {
           raw_value: napi_val,
           env: env.0,
           _marker: PhantomData,
-        })
+        });
+        #[cfg(target_family = "wasm")]
+        Ok(Self::from_raw_wasm(env.0, napi_val, Some(inner_ptr.cast()), len))
       }
 
       #[doc = "Mostly the same with `from_data`"]
@@ -1227,7 +1406,8 @@ macro_rules! impl_from_slice {
           "Create TypedArray failed"
         )?;
 
-        Ok(Self {
+        #[cfg(not(target_family = "wasm"))]
+        return Ok(Self {
           inner: if data_len == 0 {
             NonNull::dangling()
           } else {
@@ -1237,7 +1417,9 @@ macro_rules! impl_from_slice {
           raw_value: napi_val,
           env: env.0,
           _marker: PhantomData,
-        })
+        });
+        #[cfg(target_family = "wasm")]
+        Ok(Self::from_raw_wasm(env.0, napi_val, Some(inner_ptr), data_len))
       }
 
       #[doc = "Copy data from a `&["]
@@ -1252,7 +1434,10 @@ macro_rules! impl_from_slice {
         let bytes = unsafe {
           std::slice::from_raw_parts(data.as_ptr().cast::<u8>(), mem::size_of_val(data))
         };
+        #[cfg(not(target_family = "wasm"))]
         let (arraybuffer_value, underlying_data) = create_arraybuffer_copy(env.0, bytes)?;
+        #[cfg(target_family = "wasm")]
+        let arraybuffer_value = create_arraybuffer_copy(env.0, bytes)?;
 
         let mut napi_val = ptr::null_mut();
         check_status!(
@@ -1269,7 +1454,8 @@ macro_rules! impl_from_slice {
           "Create TypedArray failed"
         )?;
 
-        Ok(Self {
+        #[cfg(not(target_family = "wasm"))]
+        return Ok(Self {
           inner: if len == 0 {
             NonNull::dangling()
           } else {
@@ -1279,7 +1465,9 @@ macro_rules! impl_from_slice {
           raw_value: napi_val,
           env: env.0,
           _marker: PhantomData,
-        })
+        });
+        #[cfg(target_family = "wasm")]
+        Ok(Self::from_raw_wasm(env.0, napi_val, None, len))
       }
 
       /// Create from `ArrayBuffer`
@@ -1307,7 +1495,10 @@ macro_rules! impl_from_slice {
         Ok($slice_type {
           env: self.env,
           raw_value: self.raw_value,
+          #[cfg(not(target_family = "wasm"))]
           inner: self.inner,
+          #[cfg(target_family = "wasm")]
+          inner: self.inner.clone(),
           length: self.length,
           _marker: PhantomData,
         })
@@ -1319,7 +1510,18 @@ macro_rules! impl_from_slice {
       /// This is literally undefined behavior, as the JS side may always modify the underlying buffer,
       /// without synchronization.
       pub unsafe fn as_mut(&mut self) -> &mut [$rust_type] {
-        unsafe { core::slice::from_raw_parts_mut(self.inner.as_ptr(), self.length) }
+        #[cfg(not(target_family = "wasm"))]
+        {
+          unsafe { core::slice::from_raw_parts_mut(self.inner.as_ptr(), self.length) }
+        }
+        #[cfg(target_family = "wasm")]
+        {
+          if self.length == 0 {
+            &mut []
+          } else {
+            unsafe { core::slice::from_raw_parts_mut(self.data_ptr().as_ptr(), self.length) }
+          }
+        }
       }
 
       #[doc = "Convert a `"]
@@ -1392,7 +1594,8 @@ macro_rules! impl_from_slice {
         // In order to guarantee that `slice::from_raw_parts` is sound, the pointer must be non-null, so
         // let's make sure it always is, even in the case of `napi_get_typedarray_info` returning a null
         // ptr.
-        Ok(Self {
+        #[cfg(not(target_family = "wasm"))]
+        return Ok(Self {
           inner: if length == 0 {
             ptr::NonNull::dangling()
           } else {
@@ -1402,7 +1605,14 @@ macro_rules! impl_from_slice {
           raw_value: napi_val,
           env,
           _marker: PhantomData,
-        })
+        });
+        #[cfg(target_family = "wasm")]
+        Ok(Self::from_raw_wasm(
+          env,
+          napi_val,
+          Some(data.cast()),
+          if data.is_null() { 0 } else { length },
+        ))
       }
     }
 
@@ -1435,7 +1645,18 @@ macro_rules! impl_from_slice {
 
     impl AsRef<[$rust_type]> for $slice_type<'_> {
       fn as_ref(&self) -> &[$rust_type] {
-        unsafe { core::slice::from_raw_parts(self.inner.as_ptr(), self.length) }
+        #[cfg(not(target_family = "wasm"))]
+        {
+          unsafe { core::slice::from_raw_parts(self.inner.as_ptr(), self.length) }
+        }
+        #[cfg(target_family = "wasm")]
+        {
+          if self.length == 0 {
+            &[]
+          } else {
+            unsafe { core::slice::from_raw_parts(self.data_ptr().as_ptr(), self.length) }
+          }
+        }
       }
     }
 
@@ -1663,12 +1884,16 @@ impl Uint8Array {
   }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
+#[cfg_attr(not(target_family = "wasm"), derive(Copy))]
 /// Zero copy Uint8ClampedArray slice shared between Rust and Node.js.
 /// It can only be used in non-async context and the lifetime is bound to the fn closure.
 /// If you want to use Node.js `Uint8ClampedArray` in async context or want to extend the lifetime, use `Uint8ClampedArray` instead.
 pub struct Uint8ClampedSlice<'scope> {
+  #[cfg(not(target_family = "wasm"))]
   pub(crate) inner: NonNull<u8>,
+  #[cfg(target_family = "wasm")]
+  pub(crate) inner: Cell<Option<NonNull<u8>>>,
   pub(crate) length: usize,
   raw_value: sys::napi_value,
   env: sys::napi_env,
@@ -1702,7 +1927,8 @@ impl FromNapiValue for Uint8ClampedSlice<'_> {
         format!("Expected $name, got {typed_array_type}"),
       ));
     }
-    Ok(Self {
+    #[cfg(not(target_family = "wasm"))]
+    return Ok(Self {
       inner: if length == 0 {
         NonNull::dangling()
       } else {
@@ -1712,7 +1938,14 @@ impl FromNapiValue for Uint8ClampedSlice<'_> {
       raw_value: napi_val,
       env,
       _marker: PhantomData,
-    })
+    });
+    #[cfg(target_family = "wasm")]
+    Ok(Self::from_raw_wasm(
+      env,
+      napi_val,
+      Some(data.cast()),
+      if data.is_null() { 0 } else { length },
+    ))
   }
 }
 
@@ -1757,7 +1990,18 @@ impl ValidateNapiValue for Uint8ClampedSlice<'_> {
 
 impl AsRef<[u8]> for Uint8ClampedSlice<'_> {
   fn as_ref(&self) -> &[u8] {
-    unsafe { core::slice::from_raw_parts(self.inner.as_ptr(), self.length) }
+    #[cfg(not(target_family = "wasm"))]
+    {
+      unsafe { core::slice::from_raw_parts(self.inner.as_ptr(), self.length) }
+    }
+    #[cfg(target_family = "wasm")]
+    {
+      if self.length == 0 {
+        &[]
+      } else {
+        unsafe { core::slice::from_raw_parts(self.data_ptr().as_ptr(), self.length) }
+      }
+    }
   }
 }
 
@@ -1765,11 +2009,58 @@ impl Deref for Uint8ClampedSlice<'_> {
   type Target = [u8];
 
   fn deref(&self) -> &Self::Target {
-    unsafe { core::slice::from_raw_parts(self.inner.as_ptr(), self.length) }
+    self.as_ref()
   }
 }
 
 impl<'env> Uint8ClampedSlice<'env> {
+  #[cfg(target_family = "wasm")]
+  #[inline]
+  fn from_raw_wasm(
+    env: sys::napi_env,
+    raw_value: sys::napi_value,
+    data_ptr: Option<*mut u8>,
+    length: usize,
+  ) -> Self {
+    Self {
+      inner: Cell::new(if length == 0 {
+        None
+      } else {
+        data_ptr.and_then(NonNull::new)
+      }),
+      length,
+      raw_value,
+      env,
+      _marker: PhantomData,
+    }
+  }
+
+  #[cfg(target_family = "wasm")]
+  fn data_ptr(&self) -> NonNull<u8> {
+    if let Some(ptr) = self.inner.get() {
+      return ptr;
+    }
+    let mut data = ptr::null_mut();
+    check_status!(
+      unsafe {
+        sys::napi_get_typedarray_info(
+          self.env,
+          self.raw_value,
+          ptr::null_mut(),
+          ptr::null_mut(),
+          &mut data,
+          ptr::null_mut(),
+          ptr::null_mut(),
+        )
+      },
+      "Get TypedArray info failed"
+    )
+    .expect("Get TypedArray info failed");
+    let ptr = NonNull::new(data.cast()).expect("Non-empty TypedArray has null data pointer");
+    self.inner.set(Some(ptr));
+    ptr
+  }
+
   /// Create a new `Uint8ClampedSlice` from Vec<u8>
   pub fn from_data<D: Into<Vec<u8>>>(env: &Env, data: D) -> Result<Self> {
     let mut buf = ptr::null_mut();
@@ -1831,7 +2122,8 @@ impl<'env> Uint8ClampedSlice<'env> {
       "Create TypedArray failed"
     )?;
 
-    Ok(Self {
+    #[cfg(not(target_family = "wasm"))]
+    return Ok(Self {
       inner: if len == 0 {
         NonNull::dangling()
       } else {
@@ -1841,7 +2133,14 @@ impl<'env> Uint8ClampedSlice<'env> {
       raw_value: napi_val,
       env: env.0,
       _marker: PhantomData,
-    })
+    });
+    #[cfg(target_family = "wasm")]
+    Ok(Self::from_raw_wasm(
+      env.0,
+      napi_val,
+      Some(inner_ptr.cast()),
+      len,
+    ))
   }
 
   /// Mostly the same with `from_data`
@@ -1936,7 +2235,8 @@ impl<'env> Uint8ClampedSlice<'env> {
       "Create TypedArray failed"
     )?;
 
-    Ok(Self {
+    #[cfg(not(target_family = "wasm"))]
+    return Ok(Self {
       inner: if len == 0 {
         NonNull::dangling()
       } else {
@@ -1946,14 +2246,19 @@ impl<'env> Uint8ClampedSlice<'env> {
       raw_value: napi_val,
       env: env.0,
       _marker: PhantomData,
-    })
+    });
+    #[cfg(target_family = "wasm")]
+    Ok(Self::from_raw_wasm(env.0, napi_val, Some(inner_ptr), len))
   }
 
   /// Copy data from a `&[u8]` and create a `Uint8ClampedSlice` from it.
   pub fn copy_from<D: AsRef<[u8]>>(env: &Env, data: D) -> Result<Self> {
     let data = data.as_ref();
     let len = data.len();
+    #[cfg(not(target_family = "wasm"))]
     let (arraybuffer_value, underlying_data) = create_arraybuffer_copy(env.0, data)?;
+    #[cfg(target_family = "wasm")]
+    let arraybuffer_value = create_arraybuffer_copy(env.0, data)?;
 
     let mut napi_val = ptr::null_mut();
     check_status!(
@@ -1970,7 +2275,8 @@ impl<'env> Uint8ClampedSlice<'env> {
       "Create TypedArray failed"
     )?;
 
-    Ok(Self {
+    #[cfg(not(target_family = "wasm"))]
+    return Ok(Self {
       inner: if len == 0 {
         NonNull::dangling()
       } else {
@@ -1980,7 +2286,9 @@ impl<'env> Uint8ClampedSlice<'env> {
       raw_value: napi_val,
       env: env.0,
       _marker: PhantomData,
-    })
+    });
+    #[cfg(target_family = "wasm")]
+    Ok(Self::from_raw_wasm(env.0, napi_val, None, len))
   }
 
   /// Create from `ArrayBuffer`
@@ -2024,7 +2332,10 @@ impl<'env> Uint8ClampedSlice<'env> {
     Ok(Self {
       env: self.env,
       raw_value: self.raw_value,
+      #[cfg(not(target_family = "wasm"))]
       inner: self.inner,
+      #[cfg(target_family = "wasm")]
+      inner: self.inner.clone(),
       length: self.length,
       _marker: PhantomData,
     })
@@ -2036,7 +2347,18 @@ impl<'env> Uint8ClampedSlice<'env> {
   /// This is literally undefined behavior, as the JS side may always modify the underlying buffer,
   /// without synchronization.
   pub unsafe fn as_mut(&mut self) -> &mut [u8] {
-    core::slice::from_raw_parts_mut(self.inner.as_ptr(), self.length)
+    #[cfg(not(target_family = "wasm"))]
+    {
+      core::slice::from_raw_parts_mut(self.inner.as_ptr(), self.length)
+    }
+    #[cfg(target_family = "wasm")]
+    {
+      if self.length == 0 {
+        &mut []
+      } else {
+        unsafe { core::slice::from_raw_parts_mut(self.data_ptr().as_ptr(), self.length) }
+      }
+    }
   }
 
   /// Convert a `Uint8ClampedSlice` to a `Uint8ClampedArray`.

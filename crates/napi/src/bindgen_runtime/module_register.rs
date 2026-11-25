@@ -120,6 +120,11 @@ static MODULE_REGISTER_HOOK_CALLBACK: LazyLock<RwLock<Option<ExportRegisterHookC
 #[cfg(not(feature = "noop"))]
 static MODULE_CLASS_PROPERTIES: LazyLock<ModuleClassProperty> = LazyLock::new(Default::default);
 #[cfg(not(feature = "noop"))]
+static HAS_DISPOSABLE_CLASSES: AtomicBool = AtomicBool::new(false);
+#[cfg(not(feature = "noop"))]
+static DISPOSABLE_CLASSES: LazyLock<RwLock<HashMap<TypeId, &'static str, FxBuildHasher>>> =
+  LazyLock::new(Default::default);
+#[cfg(not(feature = "noop"))]
 static MODULE_COUNT: AtomicUsize = AtomicUsize::new(0);
 #[cfg(not(feature = "noop"))]
 static FIRST_MODULE_REGISTERED: AtomicBool = AtomicBool::new(false);
@@ -197,6 +202,17 @@ static ENV_CLEANUP_HOOK_COOKIE: AtomicUsize = AtomicUsize::new(1);
 // case: no value holds the handle after the hook. Otherwise every env would leak that reference
 // (48 B on Node), because Node never frees a reference the addon created, not even at teardown.
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
+pub(crate) struct DeferredDisposeItem {
+  pub(crate) ptr: *mut std::ffi::c_void,
+  pub(crate) finalize: unsafe fn(sys::napi_env, *mut std::ffi::c_void) -> Result<()>,
+}
+
+// SAFETY: `DeferredDisposeItem` is only ever invoked on its owning env's JS thread
+// while that env is alive (`drain_while_running`, `close`, `finish_teardown`).
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+unsafe impl Send for DeferredDisposeItem {}
+
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
 pub(crate) struct CustomGcHandle {
   /// Null once the TSFN is released.
   tsfn: std::sync::atomic::AtomicPtr<sys::napi_threadsafe_function__>,
@@ -206,6 +222,9 @@ pub(crate) struct CustomGcHandle {
   phase: RwLock<CustomGcPhase>,
   /// References released off the JS thread, as addresses, waiting for the JS thread.
   pending: std::sync::Mutex<Vec<usize>>,
+  /// Deferred disposable class finalizers released off-thread or after scope abandonment,
+  /// waiting for the env's JS thread.
+  pending_disposals: std::sync::Mutex<Vec<DeferredDisposeItem>>,
   /// Whether a wake is in flight. The callback clears it, under the `pending` lock, when it takes
   /// the last references, so a reference added after that sends a new wake.
   wake: AtomicBool,
@@ -316,6 +335,7 @@ impl CustomGcHandle {
       tsfn: std::sync::atomic::AtomicPtr::new(ptr::null_mut()),
       phase: RwLock::new(CustomGcPhase::Open),
       pending: std::sync::Mutex::new(Vec::new()),
+      pending_disposals: std::sync::Mutex::new(Vec::new()),
       wake: AtomicBool::new(false),
       #[cfg(not(target_family = "wasm"))]
       sentinel_ref: std::sync::Arc::new(std::sync::atomic::AtomicPtr::new(ptr::null_mut())),
@@ -345,6 +365,13 @@ impl CustomGcHandle {
       .unwrap_or_else(std::sync::PoisonError::into_inner)
   }
 
+  fn lock_pending_disposals(&self) -> std::sync::MutexGuard<'_, Vec<DeferredDisposeItem>> {
+    self
+      .pending_disposals
+      .lock()
+      .unwrap_or_else(std::sync::PoisonError::into_inner)
+  }
+
   /// Whether the env is not torn down yet: its cleanup hook has not run.
   #[cfg(feature = "web_stream")]
   pub(crate) fn is_open(&self) -> bool {
@@ -370,6 +397,27 @@ impl CustomGcHandle {
   pub(crate) fn defer_ref(handle: &std::sync::Arc<Self>, reference: sys::napi_ref) {
     let phase = handle.read_phase();
     handle.defer(*phase, reference);
+  }
+
+  /// Queues a deferred disposable class finalizer to run on `handle`'s JS thread while the
+  /// env is alive (`drain_while_running`, `close`, or `finish_teardown`).
+  pub(crate) fn defer_dispose(handle: &std::sync::Arc<Self>, item: DeferredDisposeItem) {
+    let phase = handle.read_phase();
+    match *phase {
+      CustomGcPhase::Open => {
+        handle.lock_pending_disposals().push(item);
+        if !handle.wake.swap(true, Ordering::SeqCst) && !handle.send_wake() {
+          handle.wake.store(false, Ordering::SeqCst);
+        }
+      }
+      CustomGcPhase::Closing if handle.has_sentinel() => {
+        handle.lock_pending_disposals().push(item);
+        handle.keep_alive_until_sentinel();
+      }
+      CustomGcPhase::Closing | CustomGcPhase::Dead => {
+        // Env is already gone / unreachable: cannot safely invoke `finalize(env)`.
+      }
+    }
   }
 
   /// The caller holds the phase read lock, and `phase` is what it read.
@@ -431,22 +479,26 @@ impl CustomGcHandle {
     true
   }
 
-  /// From the custom-GC callback: deletes up to [`MAX_DRAIN`] pending references, and wakes the
-  /// JS thread again when more are left. On `env`'s JS thread, env alive.
+  /// From the custom-GC callback: deletes up to [`MAX_DRAIN`] pending references, runs any
+  /// queued deferred disposals, and wakes the JS thread again when more are left. On `env`'s
+  /// JS thread, env alive.
   fn drain_while_running(self: &std::sync::Arc<Self>, env: sys::napi_env) {
-    let batch = {
+    let (batch, disposals) = {
       let phase = self.read_phase();
       if *phase == CustomGcPhase::Dead {
         return;
       }
       let mut pending = self.lock_pending();
-      if pending.len() <= MAX_DRAIN {
-        // Under the `pending` lock: a reference added after this sends a new wake.
+      let mut pending_disposals = self.lock_pending_disposals();
+      let disposals = std::mem::take(&mut *pending_disposals);
+      let batch = if pending.len() <= MAX_DRAIN {
+        // Under both locks: any reference or disposal added after this sends a new wake.
         self.wake.store(false, Ordering::SeqCst);
         std::mem::take(&mut *pending)
       } else {
         let keep = pending.len() - MAX_DRAIN;
         let batch = pending.split_off(keep);
+        drop(pending_disposals);
         drop(pending);
         // `wake` stays set while the next wake is in flight. In `Closing` no wake is sent; the
         // sentinel deletes the rest.
@@ -454,15 +506,16 @@ impl CustomGcHandle {
           self.wake.store(false, Ordering::SeqCst);
         }
         batch
-      }
+      };
+      (batch, disposals)
     };
-    if batch.is_empty() {
-      return;
+    if !batch.is_empty() {
+      let deleted = delete_refs(env, batch);
+      REFS_DELETED_RUNNING.fetch_add(deleted, Ordering::Relaxed);
+      DRAIN_CALLBACKS.fetch_add(1, Ordering::Relaxed);
+      LARGEST_DRAIN.fetch_max(deleted, Ordering::Relaxed);
     }
-    let deleted = delete_refs(env, batch);
-    REFS_DELETED_RUNNING.fetch_add(deleted, Ordering::Relaxed);
-    DRAIN_CALLBACKS.fetch_add(1, Ordering::Relaxed);
-    LARGEST_DRAIN.fetch_max(deleted, Ordering::Relaxed);
+    run_deferred_disposals(env, disposals, true);
   }
 
   /// Moves the phase to `Closing`, releases the TSFN's only thread count with `mode`, and
@@ -483,7 +536,7 @@ impl CustomGcHandle {
     env: sys::napi_env,
     mode: sys::napi_threadsafe_function_release_mode,
   ) -> sys::napi_status {
-    let (tsfn, refs) = {
+    let (tsfn, refs, disposals) = {
       let mut phase = self.write_phase();
       if *phase != CustomGcPhase::Dead {
         *phase = CustomGcPhase::Closing;
@@ -491,6 +544,7 @@ impl CustomGcHandle {
       (
         self.tsfn.swap(ptr::null_mut(), Ordering::SeqCst),
         std::mem::take(&mut *self.lock_pending()),
+        std::mem::take(&mut *self.lock_pending_disposals()),
       )
     };
     let status = if tsfn.is_null() {
@@ -500,6 +554,7 @@ impl CustomGcHandle {
     };
     let deleted = delete_refs(env, refs);
     REFS_DELETED_AT_TEARDOWN.fetch_add(deleted, Ordering::Relaxed);
+    run_deferred_disposals(env, disposals, false);
     status
   }
 
@@ -533,11 +588,12 @@ impl CustomGcHandle {
   /// to `Dead` and deletes every pending reference. On `env`'s JS thread, at env teardown.
   #[cfg(not(target_family = "wasm"))]
   fn finish_teardown(&self, env: sys::napi_env) {
-    let (refs, keep_alive) = {
+    let (refs, disposals, keep_alive) = {
       let mut phase = self.write_phase();
       *phase = CustomGcPhase::Dead;
       (
         std::mem::take(&mut *self.lock_pending()),
+        std::mem::take(&mut *self.lock_pending_disposals()),
         self
           .teardown_keep_alive
           .lock()
@@ -547,7 +603,24 @@ impl CustomGcHandle {
     };
     let deleted = delete_refs(env, refs);
     REFS_DELETED_AT_TEARDOWN.fetch_add(deleted, Ordering::Relaxed);
+    run_deferred_disposals(env, disposals, false);
     drop(keep_alive);
+  }
+}
+
+#[cfg(all(feature = "napi4", not(feature = "noop")))]
+fn run_deferred_disposals(
+  env: sys::napi_env,
+  disposals: Vec<DeferredDisposeItem>,
+  throw_on_err: bool,
+) {
+  for item in disposals {
+    let result = unsafe { (item.finalize)(env, item.ptr) };
+    if throw_on_err {
+      if let Err(err) = result {
+        crate::bindgen_runtime::throw_deferred_finalize_error(env, err);
+      }
+    }
   }
 }
 
@@ -737,6 +810,46 @@ pub fn register_class(
   props: Vec<Property>,
   implement_iterator: bool,
 ) {
+}
+
+#[cfg(not(feature = "noop"))]
+#[doc(hidden)]
+pub fn register_disposable_class(rust_type_id: TypeId, js_name: &'static str) {
+  DISPOSABLE_CLASSES
+    .write()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .insert(rust_type_id, js_name);
+  HAS_DISPOSABLE_CLASSES.store(true, Ordering::Release);
+}
+
+#[cfg(feature = "noop")]
+#[doc(hidden)]
+pub fn register_disposable_class(_rust_type_id: TypeId, _js_name: &'static str) {}
+
+#[cfg(not(feature = "noop"))]
+#[inline]
+pub(crate) fn disposable_class_js_name<T: ?Sized>() -> Option<&'static str> {
+  if !HAS_DISPOSABLE_CLASSES.load(Ordering::Acquire) {
+    return None;
+  }
+  let type_id = crate::bindgen_runtime::class_identity::type_id_of::<T>();
+  DISPOSABLE_CLASSES
+    .read()
+    .unwrap_or_else(std::sync::PoisonError::into_inner)
+    .get(&type_id)
+    .copied()
+}
+
+#[cfg(feature = "noop")]
+#[allow(clippy::extra_unused_type_parameters)]
+#[inline]
+pub(crate) fn disposable_class_js_name<T: ?Sized>() -> Option<&'static str> {
+  None
+}
+
+#[inline]
+pub(crate) fn is_disposable_class<T: ?Sized>() -> bool {
+  disposable_class_js_name::<T>().is_some()
 }
 
 #[cfg(all(target_family = "wasm", not(feature = "noop")))]
