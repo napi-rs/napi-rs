@@ -1,6 +1,10 @@
+#[cfg(target_family = "wasm")]
+use std::cell::Cell;
 #[cfg(all(debug_assertions, not(windows), not(target_family = "wasm")))]
 use std::collections::HashSet;
 use std::ffi::c_void;
+#[cfg(target_family = "wasm")]
+use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::ptr::{self, NonNull};
@@ -25,7 +29,20 @@ thread_local! {
 ///
 /// If you want to use Node.js Buffer in async context or want to extend the lifetime, use `Buffer` instead.
 pub struct BufferSlice<'env> {
+  #[cfg(not(target_family = "wasm"))]
   pub(crate) inner: &'env mut [u8],
+  // On wasm, `napi_create_buffer_copy` creates a pure JS-owned `Buffer` with no
+  // wasm linear-memory mirror. Calling `napi_get_buffer_info` eagerly would
+  // allocate a `_malloc`'d mirror in linear memory and register a
+  // `FinalizationRegistry` cleanup under emnapi, even when Rust never reads or
+  // writes the slice and only returns the `Buffer` to JS. Keep the pointer
+  // lazy so that mirror is only created on `Deref` / `DerefMut` / `AsRef`.
+  #[cfg(target_family = "wasm")]
+  pub(crate) inner: Cell<Option<NonNull<u8>>>,
+  #[cfg(target_family = "wasm")]
+  pub(crate) len: usize,
+  #[cfg(target_family = "wasm")]
+  _marker: PhantomData<&'env mut [u8]>,
   pub(crate) raw_value: sys::napi_value,
   #[allow(dead_code)]
   pub(crate) env: sys::napi_env,
@@ -110,6 +127,59 @@ pub(crate) unsafe fn buffer_data_ptr(env: sys::napi_env, buf: sys::napi_value) -
 }
 
 impl<'env> BufferSlice<'env> {
+  #[cfg(not(target_family = "wasm"))]
+  #[inline]
+  unsafe fn from_raw(
+    env: sys::napi_env,
+    raw_value: sys::napi_value,
+    data_ptr: *mut u8,
+    len: usize,
+  ) -> Self {
+    Self {
+      inner: if len == 0 {
+        &mut []
+      } else {
+        unsafe { slice::from_raw_parts_mut(data_ptr, len) }
+      },
+      raw_value,
+      env,
+    }
+  }
+
+  #[cfg(target_family = "wasm")]
+  #[inline]
+  fn from_raw_wasm(
+    env: sys::napi_env,
+    raw_value: sys::napi_value,
+    data_ptr: Option<*mut u8>,
+    len: usize,
+  ) -> Self {
+    Self {
+      inner: Cell::new(if len == 0 {
+        None
+      } else {
+        data_ptr.and_then(NonNull::new)
+      }),
+      len,
+      _marker: PhantomData,
+      raw_value,
+      env,
+    }
+  }
+
+  #[cfg(target_family = "wasm")]
+  fn data_ptr(&self) -> NonNull<u8> {
+    if let Some(ptr) = self.inner.get() {
+      return ptr;
+    }
+    let ptr = unsafe {
+      buffer_data_ptr(self.env, self.raw_value).expect("Failed to get Buffer pointer and length")
+    };
+    let ptr = NonNull::new(ptr).expect("Non-empty Buffer has null data pointer");
+    self.inner.set(Some(ptr));
+    ptr
+  }
+
   /// Create a new `BufferSlice` from a `Vec<u8>`.
   ///
   /// While this is still a fully-supported data structure, in most cases using a `Uint8Array` will suffice.
@@ -163,21 +233,22 @@ impl<'env> BufferSlice<'env> {
 
     // `inner` must point at the bytes, not at `buf` (the `napi_value`): the
     // `Vec` the buffer is an external view over, or the engine-owned copy.
-    let data_ptr = if copied {
-      unsafe { buffer_data_ptr(env.0, buf)? }
-    } else {
-      inner_ptr
-    };
-
-    Ok(Self {
-      inner: if len == 0 {
-        &mut []
+    #[cfg(not(target_family = "wasm"))]
+    {
+      let data_ptr = if copied {
+        unsafe { buffer_data_ptr(env.0, buf)? }
       } else {
-        unsafe { slice::from_raw_parts_mut(data_ptr, len) }
-      },
-      raw_value: buf,
-      env: env.0,
-    })
+        inner_ptr
+      };
+      Ok(unsafe { Self::from_raw(env.0, buf, data_ptr, len) })
+    }
+    #[cfg(target_family = "wasm")]
+    Ok(Self::from_raw_wasm(
+      env.0,
+      buf,
+      if copied { None } else { Some(inner_ptr) },
+      len,
+    ))
   }
 
   /// Mostly the same with `from_data`
@@ -251,21 +322,22 @@ impl<'env> BufferSlice<'env> {
     // `inner` must point at the bytes, not at `buf` (the `napi_value`): the
     // caller's `data` while the buffer is an external view over it, or the
     // engine-owned copy once `finalize` has reclaimed `data`.
-    let data_ptr = if copied {
-      unsafe { buffer_data_ptr(env.0, buf)? }
-    } else {
-      data
-    };
-
-    Ok(Self {
-      inner: if len == 0 {
-        &mut []
+    #[cfg(not(target_family = "wasm"))]
+    {
+      let data_ptr = if copied {
+        unsafe { buffer_data_ptr(env.0, buf)? }
       } else {
-        unsafe { slice::from_raw_parts_mut(data_ptr, len) }
-      },
-      raw_value: buf,
-      env: env.0,
-    })
+        data
+      };
+      Ok(unsafe { Self::from_raw(env.0, buf, data_ptr, len) })
+    }
+    #[cfg(target_family = "wasm")]
+    Ok(Self::from_raw_wasm(
+      env.0,
+      buf,
+      if copied { None } else { Some(data) },
+      len,
+    ))
   }
 
   /// Copy data from a `&[u8]` and create a `BufferSlice` from it.
@@ -282,17 +354,16 @@ impl<'env> BufferSlice<'env> {
     )?;
     // `inner` must point at the engine-owned copy, not at `buf` (the
     // `napi_value`). The `result_data` out-param above is deliberately unused;
-    // see `buffer_data_ptr`.
-    let copied_ptr = unsafe { buffer_data_ptr(env.0, buf)? };
-    Ok(Self {
-      inner: if len == 0 {
-        &mut []
-      } else {
-        unsafe { slice::from_raw_parts_mut(copied_ptr, len) }
-      },
-      raw_value: buf,
-      env: env.0,
-    })
+    // see `buffer_data_ptr`. On wasm, leave the pointer lazy so returning a
+    // copied `BufferSlice` to JS without reading it in Rust never allocates a
+    // linear-memory mirror under emnapi.
+    #[cfg(not(target_family = "wasm"))]
+    {
+      let copied_ptr = unsafe { buffer_data_ptr(env.0, buf)? };
+      Ok(unsafe { Self::from_raw(env.0, buf, copied_ptr, len) })
+    }
+    #[cfg(target_family = "wasm")]
+    Ok(Self::from_raw_wasm(env.0, buf, None, len))
   }
 
   /// Convert a `BufferSlice` to a `Buffer`
@@ -330,15 +401,10 @@ impl FromNapiValue for BufferSlice<'_> {
     // In order to guarantee that `slice::from_raw_parts` is sound, the pointer must be non-null, so
     // let's make sure it always is, even in the case of `napi_get_buffer_info` returning a null
     // ptr.
-    Ok(Self {
-      inner: if len == 0 {
-        &mut []
-      } else {
-        unsafe { slice::from_raw_parts_mut(buf.cast(), len) }
-      },
-      raw_value: napi_val,
-      env,
-    })
+    #[cfg(not(target_family = "wasm"))]
+    return Ok(unsafe { Self::from_raw(env, napi_val, buf.cast(), len) });
+    #[cfg(target_family = "wasm")]
+    Ok(Self::from_raw_wasm(env, napi_val, Some(buf.cast()), len))
   }
 }
 
@@ -378,7 +444,7 @@ impl ValidateNapiValue for BufferSlice<'_> {
 
 impl AsRef<[u8]> for BufferSlice<'_> {
   fn as_ref(&self) -> &[u8] {
-    self.inner
+    self
   }
 }
 
@@ -386,13 +452,35 @@ impl Deref for BufferSlice<'_> {
   type Target = [u8];
 
   fn deref(&self) -> &Self::Target {
-    self.inner
+    #[cfg(not(target_family = "wasm"))]
+    {
+      self.inner
+    }
+    #[cfg(target_family = "wasm")]
+    {
+      if self.len == 0 {
+        &[]
+      } else {
+        unsafe { slice::from_raw_parts(self.data_ptr().as_ptr(), self.len) }
+      }
+    }
   }
 }
 
 impl DerefMut for BufferSlice<'_> {
   fn deref_mut(&mut self) -> &mut Self::Target {
-    self.inner
+    #[cfg(not(target_family = "wasm"))]
+    {
+      self.inner
+    }
+    #[cfg(target_family = "wasm")]
+    {
+      if self.len == 0 {
+        &mut []
+      } else {
+        unsafe { slice::from_raw_parts_mut(self.data_ptr().as_ptr(), self.len) }
+      }
+    }
   }
 }
 

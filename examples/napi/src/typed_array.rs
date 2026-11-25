@@ -188,6 +188,30 @@ pub fn buffer_slice_copy_from_mutated(env: &Env) -> Result<BufferSlice<'_>> {
 }
 
 #[napi]
+pub fn create_buffer_slice_of_size(env: &Env, kind: String, size: u32) -> Result<BufferSlice<'_>> {
+  let len = size as usize;
+  let data = vec![0x5au8; len];
+  match kind.as_str() {
+    "copy_from" => BufferSlice::copy_from(env, &data),
+    "from_data" => BufferSlice::from_data(env, data),
+    "from_external" => {
+      let mut data = data;
+      let ptr = data.as_mut_ptr();
+      std::mem::forget(data);
+      unsafe {
+        BufferSlice::from_external(env, ptr, len, ptr, move |_, ptr| {
+          std::mem::drop(Vec::from_raw_parts(ptr, len, len));
+        })
+      }
+    }
+    _ => Err(Error::new(
+      Status::InvalidArg,
+      format!("Unknown kind: {kind}"),
+    )),
+  }
+}
+
+#[napi]
 fn get_empty_typed_array() -> Uint8Array {
   vec![].into()
 }
