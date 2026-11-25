@@ -1610,6 +1610,7 @@ export const createArraybuffer = __napiModule.exports.createArraybuffer;
 export const createBigInt = __napiModule.exports.createBigInt;
 export const createBigIntI64 = __napiModule.exports.createBigIntI64;
 export const createBufferSliceFromCopiedData = __napiModule.exports.createBufferSliceFromCopiedData;
+export const createBufferSliceOfSize = __napiModule.exports.createBufferSliceOfSize;
 export const createClosureReadingExternal = __napiModule.exports.createClosureReadingExternal;
 export const createDeferredThenFail = __napiModule.exports.createDeferredThenFail;
 export const createDuplicateExternalRef = __napiModule.exports.createDuplicateExternalRef;

@@ -290,3 +290,67 @@ test.skipIf(!isThreadlessWasiBufferTest)(
     }
   },
 )
+
+// Regression: on wasm, `BufferSlice::copy_from` (and `from_data` / `from_external`
+// on the threadless copy fallback) used to call `napi_get_buffer_info` eagerly.
+// Under emnapi that allocates a linear-memory mirror via `_malloc`, copies the
+// bytes back from JS to wasm, and relies on `FinalizationRegistry` to `_free` it.
+// In a host that retains the returned `Buffer`s or never runs GC finalizers,
+// linear memory grew unboundedly even though Rust never dereferenced the slice.
+test.skipIf(!isThreadlessWasiBufferTest)(
+  'threadless BufferSlice constructors do not allocate wasm mirror memory when unused in Rust',
+  async (t) => {
+    const wasmBytes = await readFile(
+      new URL('../example.wasm32-wasip1.wasm', import.meta.url),
+    )
+    const webAssembly = Reflect.get(globalThis, 'WebAssembly') as {
+      compile(bytes: Uint8Array): Promise<WebAssembly.Module>
+    }
+    const wasmModule = await webAssembly.compile(wasmBytes)
+    const deferred = await import(
+      new URL('../example.wasip1-deferred.js', import.meta.url).href
+    )
+    const instance = await deferred.createInstance(wasmModule)
+
+    try {
+      const { exports } = instance
+      const chunkSize = 256 * 1024
+      // Warm up dlmalloc's arena for the temporary Rust `Vec` per kind.
+      for (const kind of ['copy_from', 'from_data', 'from_external'] as const) {
+        const warmup = exports.createBufferSliceOfSize(kind, chunkSize)
+        t.true(NodeBuffer.isBuffer(warmup), kind)
+        t.is(warmup.length, chunkSize, kind)
+        t.is(warmup[0], 0x5a, kind)
+        t.is(warmup[chunkSize - 1], 0x5a, kind)
+      }
+      // Empty slice path stays safe without touching `napi_get_buffer_info`.
+      for (const kind of ['copy_from', 'from_data'] as const) {
+        const empty = exports.createBufferSliceOfSize(kind, 0)
+        t.true(NodeBuffer.isBuffer(empty), `${kind} empty`)
+        t.is(empty.length, 0, `${kind} empty`)
+      }
+
+      const memoryBefore = exports.wasmMemorySizeBytes()
+      // Hold 48 MiB of returned Buffers strongly in JS so FinalizationRegistry
+      // cannot run. With a lazy wasm pointer, linear memory does not grow.
+      const held: Uint8Array[] = []
+      for (const kind of ['copy_from', 'from_data', 'from_external'] as const) {
+        for (let i = 0; i < 64; i++) {
+          const buf = exports.createBufferSliceOfSize(kind, chunkSize)
+          t.is(buf[0], 0x5a)
+          t.is(buf[chunkSize - 1], 0x5a)
+          held.push(buf)
+        }
+      }
+      const memoryAfter = exports.wasmMemorySizeBytes()
+      t.is(
+        memoryAfter,
+        memoryBefore,
+        `expected zero wasm memory growth across 48 MiB of retained BufferSlice results (before=${memoryBefore}, after=${memoryAfter})`,
+      )
+      t.is(held.length, 192)
+    } finally {
+      instance.dispose()
+    }
+  },
+)
