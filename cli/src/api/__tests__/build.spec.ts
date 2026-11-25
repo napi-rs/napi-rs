@@ -4993,9 +4993,11 @@ interface RecordingCargoProject {
     target?: string
     crossCompile?: boolean
     binaryOnly?: boolean
+    noRootDts?: boolean
     targetDir?: string
     jsBinding?: string
     dts?: string
+    dtsHeader?: string
     env?: Record<string, string>
     /** Serve a canned `cargo metadata` response instead of real cargo. */
     cannedMetadata?: boolean
@@ -5102,9 +5104,11 @@ exit 0
       target,
       crossCompile,
       binaryOnly,
+      noRootDts,
       targetDir,
       jsBinding,
       dts,
+      dtsHeader,
       env,
       cannedMetadata,
     }) => {
@@ -5143,9 +5147,11 @@ exit 0
           target,
           crossCompile,
           binaryOnly,
+          noRootDts,
           targetDir,
           jsBinding,
           dts,
+          dtsHeader,
           platform: true,
           release: true,
           outputDir: 'dist',
@@ -5932,6 +5938,240 @@ napi-derive = { path = "napi-derive-stub" }
       } else {
         process.env.NAPI_BINARY_ONLY_ENV_SENTINEL = originalEnvSentinel
       }
+      shim.restoreEnv()
+    }
+  },
+)
+
+test('--no-root-dts parses as boolean build option', (t) => {
+  const command = createBuildCommand(['--no-root-dts'])
+  t.is(command.getOptions().noRootDts, true)
+})
+
+posixOnly(
+  'noRootDts skips writing root declaration while preserving WASI declarations and loaders identically',
+  async (t) => {
+    const { projectDir } = t.context
+    const nativeTarget = 'x86_64-unknown-linux-gnu'
+    const wasiTarget = 'wasm32-wasip1'
+    const shim = await setupRecordingCargoProject(
+      t,
+      'no_root_dts_crate',
+      'no-root-dts-crate',
+    )
+
+    // Add a local offline `napi-derive` stub with `type-def` enabled so
+    // `enableTypeDef` is genuinely active.
+    const deriveStubDir = join(projectDir, 'napi-derive-stub')
+    await mkdir(join(deriveStubDir, 'src'), { recursive: true })
+    await writeFile(
+      join(deriveStubDir, 'Cargo.toml'),
+      `[package]
+name = "napi-derive"
+version = "3.0.0"
+edition = "2021"
+
+[features]
+default = ["type-def"]
+type-def = []
+`,
+    )
+    await writeFile(join(deriveStubDir, 'src', 'lib.rs'), '')
+    const cargoTomlPath = join(projectDir, 'Cargo.toml')
+    await writeFile(
+      cargoTomlPath,
+      `${await readFile(cargoTomlPath, 'utf8')}
+[dependencies]
+napi-derive = { path = "napi-derive-stub" }
+`,
+    )
+
+    // Teach the recorded cargo shim to emit a real `.type` file into
+    // `$NAPI_TYPE_DEF_TMP_FOLDER` so typegen generates non-empty `.d.ts` files.
+    const cargoPath = join(projectDir, 'bin', 'cargo')
+    const cargoScript = await readFile(cargoPath, 'utf8')
+    await writeFile(
+      cargoPath,
+      cargoScript.replace(
+        'exit 0\n',
+        `if [ -n "$NAPI_TYPE_DEF_TMP_FOLDER" ]; then
+  mkdir -p "$NAPI_TYPE_DEF_TMP_FOLDER"
+  printf '%s\\n' '{"kind":"fn","name":"sum","def":"export declare function sum(a: number, b: number): number"}' > "$NAPI_TYPE_DEF_TMP_FOLDER/no_root_dts_crate"
+fi
+exit 0
+`,
+      ),
+    )
+
+    const cliRequire = createRequire(import.meta.url)
+    const emnapiVersion: string = cliRequire('emnapi/package.json').version
+    for (const pkg of ['@emnapi/core', '@emnapi/runtime']) {
+      const pkgDir = join(projectDir, 'node_modules', pkg)
+      await mkdir(pkgDir, { recursive: true })
+      await writeFile(
+        join(pkgDir, 'package.json'),
+        JSON.stringify({ name: pkg, version: emnapiVersion }),
+      )
+    }
+
+    await writeFile(
+      join(projectDir, 'package.json'),
+      JSON.stringify({
+        name: 'no-root-dts-crate',
+        version: '0.1.0',
+        napi: {
+          binaryName: 'no-root-dts-crate',
+          targets: [nativeTarget, wasiTarget],
+          fallbackBinding: {
+            specifier: './webcontainer-fallback.cjs',
+            processVersion: 'webcontainer',
+          },
+        },
+      }),
+    )
+
+    const targetDir = join(projectDir, 'target')
+    const nativeArtifactDir = join(targetDir, nativeTarget, 'release')
+    const wasiArtifactDir = join(targetDir, wasiTarget, 'release')
+    await Promise.all([
+      mkdir(nativeArtifactDir, { recursive: true }),
+      mkdir(wasiArtifactDir, { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(
+        join(nativeArtifactDir, 'libno_root_dts_crate.so'),
+        'fake native binary',
+      ),
+      writeFile(
+        join(wasiArtifactDir, 'no_root_dts_crate.wasm'),
+        buildSyntheticWasiWasm({
+          memoryMinPages: 32,
+          stackPointer: 1_048_576,
+        }),
+      ),
+    ])
+
+    const distDir = join(projectDir, 'dist')
+    const dtsHeader = `import type { Helper } from './types.js'\n`
+    const nestedDts = 'nested/binding.d.cts'
+    const rootDtsPath = join(distDir, nestedDts)
+
+    try {
+      // 1. Baseline WASI build WITH root dts written.
+      const baselineOutputs = await (
+        await shim.run({
+          target: wasiTarget,
+          targetDir,
+          jsBinding: 'binding.cjs',
+          dts: nestedDts,
+          dtsHeader,
+          cannedMetadata: true,
+        })
+      ).task
+      t.true(
+        baselineOutputs.some(
+          (output) => output.kind === 'dts' && output.path === rootDtsPath,
+        ),
+      )
+
+      const wasiFiles = [
+        'no-root-dts-crate.wasip1.d.cts',
+        'no-root-dts-crate.wasip1-deferred.d.ts',
+        'no-root-dts-crate.wasip1.cjs',
+        'no-root-dts-crate.wasip1-browser.js',
+        'no-root-dts-crate.wasip1-deferred.js',
+        'binding.cjs',
+      ]
+      const baselineContents = new Map<string, string>()
+      for (const file of wasiFiles) {
+        baselineContents.set(file, await readFile(join(distDir, file), 'utf8'))
+      }
+      // Verify relative import from `nested/binding.d.cts` was rebased to `./nested/types.js`
+      // and fallbackBinding was emitted into the generated root binding.cjs.
+      t.true(
+        baselineContents
+          .get('no-root-dts-crate.wasip1.d.cts')!
+          .includes('./nested/types.js'),
+      )
+      t.true(
+        baselineContents
+          .get('binding.cjs')!
+          .includes("process.versions['webcontainer']"),
+      )
+      t.true(
+        baselineContents
+          .get('binding.cjs')!
+          .includes("require('./webcontainer-fallback.cjs')"),
+      )
+
+      // 2. Replace root dts with a sentinel and run WASI build with `noRootDts: true`.
+      const sentinel = '// preserved root binding.d.cts\n'
+      await writeFile(rootDtsPath, sentinel)
+
+      const noRootDtsWasiOutputs = await (
+        await shim.run({
+          target: wasiTarget,
+          targetDir,
+          jsBinding: 'binding.cjs',
+          dts: nestedDts,
+          dtsHeader,
+          noRootDts: true,
+        })
+      ).task
+
+      t.false(
+        noRootDtsWasiOutputs.some((output) => output.path === rootDtsPath),
+        'root dts must be omitted from outputs under --no-root-dts',
+      )
+      t.is(
+        await readFile(rootDtsPath, 'utf8'),
+        sentinel,
+        'existing root dts must remain untouched under --no-root-dts',
+      )
+      for (const file of wasiFiles) {
+        t.is(
+          await readFile(join(distDir, file), 'utf8'),
+          baselineContents.get(file),
+          `${file} must match baseline byte-for-byte under --no-root-dts`,
+        )
+      }
+
+      // 3. Native build with `noRootDts: true` also leaves root dts untouched and omitted.
+      const noRootDtsNativeOutputs = await (
+        await shim.run({
+          target: nativeTarget,
+          targetDir,
+          jsBinding: 'binding.cjs',
+          dts: nestedDts,
+          dtsHeader,
+          noRootDts: true,
+        })
+      ).task
+      t.false(
+        noRootDtsNativeOutputs.some((output) => output.path === rootDtsPath),
+        'root dts must be omitted from native outputs under --no-root-dts',
+      )
+      t.true(
+        noRootDtsNativeOutputs.some(
+          (output) =>
+            output.kind === 'node' &&
+            output.path ===
+              join(distDir, 'no-root-dts-crate.linux-x64-gnu.node'),
+        ),
+      )
+      t.true(
+        noRootDtsNativeOutputs.some(
+          (output) =>
+            output.kind === 'js' &&
+            output.path === join(distDir, 'binding.cjs'),
+        ),
+      )
+      t.is(
+        await readFile(rootDtsPath, 'utf8'),
+        sentinel,
+        'existing root dts must remain untouched after native build with --no-root-dts',
+      )
+    } finally {
       shim.restoreEnv()
     }
   },

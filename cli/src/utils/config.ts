@@ -32,6 +32,65 @@ export const RootPublishers = ['npm', 'pnpm', 'yarn', 'yarn-classic'] as const
 
 export type RootPublisher = ValueOfConstArray<typeof RootPublishers>
 
+export interface FallbackBindingConfig {
+  /**
+   * Module specifier passed to `require(...)` when native and WASI binding
+   * resolution both fail.
+   */
+  specifier: string
+  /**
+   * Optional key on `process.versions` (for example `'webcontainer'`) that must
+   * be truthy before requiring `specifier`.
+   */
+  processVersion?: string
+}
+
+export function normalizeFallbackBinding(
+  fallbackBinding: string | FallbackBindingConfig | undefined,
+): FallbackBindingConfig | undefined {
+  if (fallbackBinding === undefined) {
+    return undefined
+  }
+  if (typeof fallbackBinding === 'string') {
+    if (fallbackBinding.trim().length === 0) {
+      throw new Error(
+        'napi.fallbackBinding must be a non-empty module specifier string',
+      )
+    }
+    return { specifier: fallbackBinding }
+  }
+  if (
+    typeof fallbackBinding !== 'object' ||
+    fallbackBinding === null ||
+    Array.isArray(fallbackBinding)
+  ) {
+    throw new Error(
+      'napi.fallbackBinding must be a non-empty string or an object with a non-empty specifier',
+    )
+  }
+  if (
+    typeof fallbackBinding.specifier !== 'string' ||
+    fallbackBinding.specifier.trim().length === 0
+  ) {
+    throw new Error('napi.fallbackBinding.specifier must be a non-empty string')
+  }
+  if (
+    fallbackBinding.processVersion !== undefined &&
+    (typeof fallbackBinding.processVersion !== 'string' ||
+      fallbackBinding.processVersion.trim().length === 0)
+  ) {
+    throw new Error(
+      'napi.fallbackBinding.processVersion must be a non-empty string when provided',
+    )
+  }
+  return fallbackBinding.processVersion !== undefined
+    ? {
+        specifier: fallbackBinding.specifier,
+        processVersion: fallbackBinding.processVersion,
+      }
+    : { specifier: fallbackBinding.specifier }
+}
+
 export interface UserNapiConfig {
   /**
    * Name of the binary to be generated, default to `index`
@@ -239,6 +298,12 @@ export interface UserNapiConfig {
   }
 
   /**
+   * Optional declarative fallback module loaded via `require(specifier)` when
+   * both native and WASI binding resolution fail.
+   */
+  fallbackBinding?: string | FallbackBindingConfig
+
+  /**
    * @deprecated binaryName instead
    */
   name?: string
@@ -312,6 +377,7 @@ export type NapiConfig = Required<
     | 'constEnum'
     | 'runtimeStringEnum'
     | 'rootPublisher'
+    | 'fallbackBinding'
   > & {
     targets: Target[]
     packageJson: CommonPackageJsonFields
@@ -373,6 +439,10 @@ export async function readNapiConfig(
     },
     omit(userNapiConfig, ['targets']),
   )
+
+  if (napiConfig.fallbackBinding !== undefined) {
+    normalizeFallbackBinding(napiConfig.fallbackBinding)
+  }
 
   let targets: string[] = userNapiConfig.targets ?? []
 

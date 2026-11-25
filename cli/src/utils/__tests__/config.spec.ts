@@ -126,3 +126,100 @@ test('should reject targets that normalize to the same artifact identity', async
     await unlink(packageJson)
   }
 })
+
+test('should accept valid string and object napi.fallbackBinding config', async (t) => {
+  const stringPkg = join(tmpdir(), 'package-fallback-string.json')
+  const objectPkg = join(tmpdir(), 'package-fallback-object.json')
+  await Promise.all([
+    writeFile(
+      stringPkg,
+      JSON.stringify({
+        name: '@napi-rs/fallback-string',
+        version: '0.0.0',
+        napi: {
+          binaryName: 'fallback',
+          fallbackBinding: './webcontainer-fallback.cjs',
+        },
+      }),
+    ),
+    writeFile(
+      objectPkg,
+      JSON.stringify({
+        name: '@napi-rs/fallback-object',
+        version: '0.0.0',
+        napi: {
+          binaryName: 'fallback',
+          fallbackBinding: {
+            specifier: './webcontainer-fallback.cjs',
+            processVersion: 'webcontainer',
+          },
+        },
+      }),
+    ),
+  ])
+  try {
+    const stringConfig = await readNapiConfig(stringPkg)
+    t.is(stringConfig.fallbackBinding, './webcontainer-fallback.cjs')
+
+    const objectConfig = await readNapiConfig(objectPkg)
+    t.deepEqual(objectConfig.fallbackBinding, {
+      specifier: './webcontainer-fallback.cjs',
+      processVersion: 'webcontainer',
+    })
+  } finally {
+    await Promise.all([unlink(stringPkg), unlink(objectPkg)])
+  }
+})
+
+test('should reject invalid napi.fallbackBinding config', async (t) => {
+  const cases: Array<[string, unknown, RegExp]> = [
+    ['empty string', '', /non-empty module specifier/],
+    ['whitespace string', '   ', /non-empty module specifier/],
+    ['number', 42, /non-empty string or an object/],
+    ['array', ['./fallback.cjs'], /non-empty string or an object/],
+    ['null', null, /non-empty string or an object/],
+    ['missing specifier', {}, /specifier must be a non-empty string/],
+    [
+      'empty specifier',
+      { specifier: '  ' },
+      /specifier must be a non-empty string/,
+    ],
+    [
+      'empty processVersion',
+      { specifier: './fallback.cjs', processVersion: '' },
+      /processVersion must be a non-empty string/,
+    ],
+    [
+      'non-string processVersion',
+      { specifier: './fallback.cjs', processVersion: 123 },
+      /processVersion must be a non-empty string/,
+    ],
+  ]
+
+  for (const [label, fallbackBinding, pattern] of cases) {
+    const pkgPath = join(
+      tmpdir(),
+      `package-fallback-invalid-${label.replaceAll(/\s+/g, '-')}.json`,
+    )
+    await writeFile(
+      pkgPath,
+      JSON.stringify({
+        name: '@napi-rs/fallback-invalid',
+        version: '0.0.0',
+        napi: {
+          binaryName: 'fallback',
+          fallbackBinding,
+        },
+      }),
+    )
+    try {
+      await t.throwsAsync(
+        () => readNapiConfig(pkgPath),
+        { message: pattern },
+        label,
+      )
+    } finally {
+      await unlink(pkgPath)
+    }
+  }
+})

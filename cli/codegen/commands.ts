@@ -215,6 +215,12 @@ const BUILD_OPTIONS: CommandSchema = {
         'Path and filename of generated type def file. Relative to `--output-dir`',
     },
     {
+      name: 'noRootDts',
+      type: 'boolean',
+      description:
+        'Skip writing the root TypeScript declaration file while still generating type definitions and WASI target declaration files',
+    },
+    {
       name: 'dtsHeader',
       type: 'string',
       description:

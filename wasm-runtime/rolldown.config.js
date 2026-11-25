@@ -314,4 +314,18 @@ export default defineConfig([
       },
     ],
   },
+  {
+    input: './emnapi-compat.js',
+    output: [
+      {
+        format: 'esm',
+        file: './dist/emnapi-compat.js',
+      },
+      {
+        format: 'commonjs',
+        exports: 'named',
+        file: './dist/emnapi-compat.cjs',
+      },
+    ],
+  },
 ])

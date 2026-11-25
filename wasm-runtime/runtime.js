@@ -1,14 +1,43 @@
 import * as emnapiCore from '@emnapi/core'
 import * as emnapiRuntime from '@emnapi/runtime'
 
+import { prepareInstantiateOptions } from './dist/emnapi-compat.js'
 import {
   emnapiAsyncWorkPlugin,
   emnapiTSFNPlugin,
 } from './dist/emnapi-plugins.js'
 
-const { instantiateNapiModuleSync, instantiateNapiModule, MessageHandler } =
-  emnapiCore
+const {
+  instantiateNapiModuleSync: coreInstantiateNapiModuleSync,
+  instantiateNapiModule: coreInstantiateNapiModule,
+  MessageHandler,
+} = emnapiCore
 const { createContext, getDefaultContext } = emnapiRuntime
+
+function instantiateNapiModuleSync(wasmInput, options) {
+  const prepared = prepareInstantiateOptions(options)
+  const result = coreInstantiateNapiModuleSync(wasmInput, prepared.options)
+  prepared.captureResult(result)
+  return result
+}
+
+function instantiateNapiModule(wasmInput, options) {
+  let prepared
+  try {
+    prepared = prepareInstantiateOptions(options)
+  } catch (error) {
+    return Promise.reject(error)
+  }
+  const result = coreInstantiateNapiModule(wasmInput, prepared.options)
+  if (result && typeof result.then === 'function') {
+    return result.then((resolved) => {
+      prepared.captureResult(resolved)
+      return resolved
+    })
+  }
+  prepared.captureResult(result)
+  return result
+}
 
 // Single-threaded (non-shared-memory) WASI builds link an emnapi archive
 // without the C async-work and threadsafe-function implementations (they are

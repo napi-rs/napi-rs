@@ -100,4 +100,11 @@ export {
   writeJsBinding,
   generateTypeDef,
 } from './api/build.js'
-export { readNapiConfig } from './utils/config.js'
+export { type FallbackBindingConfig, readNapiConfig } from './utils/config.js'
+export {
+  WASI_ARTIFACT_METADATA_PREFIX,
+  type WasiArtifactMetadata,
+  parseWasiArtifactMetadata,
+  readWasiArtifactMetadata,
+  readWasiArtifactMetadataSync,
+} from './utils/wasi-metadata.js'

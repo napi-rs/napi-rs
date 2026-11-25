@@ -17,6 +17,7 @@ const ownCore = require('@emnapi/core')
 // (`napiModule`) to the beta name (`addonModule`). When the core that runs
 // the module is v2, `instantiateNapiModule(Sync)` below passes that core's
 // own `@emnapi/core/plugins` in their place (see `pluginsOf`).
+const { prepareInstantiateOptions } = require('./dist/emnapi-compat.cjs')
 const {
   emnapiAsyncWorkPlugin,
   emnapiTSFNPlugin,
@@ -102,7 +103,7 @@ function builtins() {
 }
 
 function cachedModules() {
-  const cache = require.cache
+  const cache = typeof require === 'function' ? require.cache : undefined
   if (cache === null || typeof cache !== 'object') return []
   return Object.values(cache).filter(
     (entry) =>
@@ -438,27 +439,6 @@ function pluginsOf(pair) {
   return pair.plugins
 }
 
-// The caller's options with only `plugins` replaced. emnapi reads these
-// options by property access, so a proxy keeps every other property as it was:
-// own, inherited, non-enumerable and accessor properties alike. A copy would
-// drop all but the own enumerable ones. Getters run on the original object.
-function withPlugins(options, plugins) {
-  const own = Object.getOwnPropertyDescriptor(options, 'plugins')
-  if (
-    own !== undefined &&
-    own.configurable === false &&
-    ('value' in own ? own.writable === false : own.get === undefined)
-  ) {
-    // A proxy may not report another value for this property.
-    return options
-  }
-  return new Proxy(options, {
-    get(target, key) {
-      return key === 'plugins' ? plugins : Reflect.get(target, key)
-    },
-  })
-}
-
 function prepare(options) {
   const context = options != null ? options.context : undefined
   let pair
@@ -487,6 +467,7 @@ function prepare(options) {
     )
   }
 
+  let overridePlugins
   if (options != null && Array.isArray(options.plugins)) {
     const own = pluginsOf(pair)
     if (own !== null) {
@@ -503,16 +484,26 @@ function prepare(options) {
         return plugin
       })
       if (changed) {
-        options = withPlugins(options, plugins)
+        overridePlugins = plugins
       }
     }
   }
-  return { core: pair.core, options }
+  const wrapped = prepareInstantiateOptions(options, overridePlugins)
+  return {
+    core: pair.core,
+    options: wrapped.options,
+    captureResult: wrapped.captureResult,
+  }
 }
 
 function instantiateNapiModuleSync(wasmInput, options) {
   const prepared = prepare(options)
-  return prepared.core.instantiateNapiModuleSync(wasmInput, prepared.options)
+  const result = prepared.core.instantiateNapiModuleSync(
+    wasmInput,
+    prepared.options,
+  )
+  prepared.captureResult(result)
+  return result
 }
 
 function instantiateNapiModule(wasmInput, options) {
@@ -522,7 +513,18 @@ function instantiateNapiModule(wasmInput, options) {
   } catch (error) {
     return Promise.reject(error)
   }
-  return prepared.core.instantiateNapiModule(wasmInput, prepared.options)
+  const result = prepared.core.instantiateNapiModule(
+    wasmInput,
+    prepared.options,
+  )
+  if (result && typeof result.then === 'function') {
+    return result.then((resolved) => {
+      prepared.captureResult(resolved)
+      return resolved
+    })
+  }
+  prepared.captureResult(result)
+  return result
 }
 
 function createContext(...args) {

@@ -1,4 +1,8 @@
-import { wasiLoaderSuffix } from '../../utils/index.js'
+import {
+  type FallbackBindingConfig,
+  normalizeFallbackBinding,
+  wasiLoaderSuffix,
+} from '../../utils/index.js'
 
 import {
   assertBindingTargetIdentFree,
@@ -138,6 +142,41 @@ function createWasiFallbackChain(
 ${chain}`
 }
 
+function escapeSingleQuotedJsString(value: string): string {
+  return value
+    .replaceAll('\\', '\\\\')
+    .replaceAll("'", "\\'")
+    .replaceAll('\n', '\\n')
+    .replaceAll('\r', '\\r')
+    .replaceAll('\u2028', '\\u2028')
+    .replaceAll('\u2029', '\\u2029')
+}
+
+function createFallbackBindingHook(
+  fallbackBinding?: string | FallbackBindingConfig,
+): string {
+  const normalized = normalizeFallbackBinding(fallbackBinding)
+  if (!normalized) {
+    return ''
+  }
+  const escapedSpecifier = escapeSingleQuotedJsString(normalized.specifier)
+  const condition = normalized.processVersion
+    ? `!nativeBinding && typeof process === 'object' && process !== null && process.versions && process.versions['${escapeSingleQuotedJsString(normalized.processVersion)}']`
+    : 'nativeBinding == null'
+  return `
+if (${condition}) {
+  try {
+    const __napiFallbackBinding = require('${escapedSpecifier}')
+    if (__napiFallbackBinding) {
+      nativeBinding = __napiFallbackBinding
+    }
+  } catch (e) {
+    loadErrors.push(e)
+  }
+}
+`
+}
+
 export function createCjsBinding(
   localName: string,
   pkgName: string,
@@ -145,6 +184,7 @@ export function createCjsBinding(
   packageVersion?: string,
   wasiFlavors?: string[],
   localWasiName?: string,
+  fallbackBinding?: string | FallbackBindingConfig,
 ): string {
   assertBindingTargetIdentFree(idents)
   return `${bindingHeader}
@@ -154,6 +194,7 @@ ${createCommonBinding(
   packageVersion,
   wasiFlavors,
   localWasiName,
+  fallbackBinding,
 )}
 ${BINDING_TARGET_STAMP_HELPER}
 // Stamp before the alias, not after. The guard only reads \`nativeBinding\`
@@ -186,6 +227,7 @@ export function createEsmBinding(
   packageVersion?: string,
   wasiFlavors?: string[],
   localWasiName?: string,
+  fallbackBinding?: string | FallbackBindingConfig,
 ): string {
   assertBindingTargetIdentFree(idents)
   // Both branches must carry it, or a zero-ident package silently loses the
@@ -208,6 +250,7 @@ ${createCommonBinding(
   packageVersion,
   wasiFlavors,
   localWasiName,
+  fallbackBinding,
 )}
 ${exportsCode}
 `
@@ -224,6 +267,7 @@ function createCommonBinding(
   packageVersion?: string,
   wasiFlavors?: string[],
   localWasiName?: string,
+  fallbackBinding?: string | FallbackBindingConfig,
 ): string {
   const expectedVersion = packageVersion
     ? stripSemverBuildMetadata(packageVersion)
@@ -269,6 +313,7 @@ const __napiStripBuildMetadata = (version) => {
 }`
     : ''
 
+  const fallbackBindingHook = createFallbackBindingHook(fallbackBinding)
   return `const { readFileSync } = require('fs')
 let nativeBinding = null
 // Which artifact actually loaded. The WASI fallback chain overwrites it with
@@ -528,7 +573,7 @@ ${createWasiFallbackChain(
     throw error
   }
 }
-
+${fallbackBindingHook}
 if (!nativeBinding) {
   if (loadErrors.length > 0) {
     const error = new Error(
