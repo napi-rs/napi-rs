@@ -2136,14 +2136,18 @@ fn forget_timer_host_registration(id: u64) {
   timer_host_registrations().remove(&id);
 }
 
+// Kept crate-private (with an explicit `js_name`) so enabling `napi-timer-host`
+// via Cargo feature unification never swaps a public Rust function signature.
 #[cfg(all(feature = "napi-timer-host-stub", not(feature = "napi-timer-host")))]
+#[allow(dead_code)]
 #[napi(
+  js_name = "registerTimerHost",
   ts_args_type = "registrationHigh: number, registrationLow: number, schedule: (id: number, ms: number) => Promise<void>, cancel: (id: number) => void"
 )]
 /// Accept the host timer callbacks of the CurrentThread host contract without
 /// installing a JavaScript timer relay. Registrations are tracked for liveness
 /// and released on environment cleanup or `unregisterTimerHost`.
-pub fn register_timer_host(
+fn register_timer_host_stub(
   env: &napi::Env,
   registration_high: u32,
   registration_low: u32,
@@ -2162,10 +2166,13 @@ pub fn register_timer_host(
   )
 }
 
+// Kept crate-private (with an explicit `js_name`) so `napi-timer-host-stub`
+// stays strictly additive under Cargo feature unification.
 #[cfg(all(feature = "napi-timer-host-stub", not(feature = "napi-timer-host")))]
-#[napi]
+#[allow(dead_code)]
+#[napi(js_name = "unregisterTimerHost")]
 /// Evict one registration made by `registerTimerHost`.
-pub fn unregister_timer_host(registration_high: u32, registration_low: u32) {
+fn unregister_timer_host_stub(registration_high: u32, registration_low: u32) {
   let id = BindingHostRegistration::id(registration_high, registration_low);
   release_host_registration_id(id);
   forget_timer_host_registration(id);
@@ -2412,7 +2419,7 @@ mod tests {
   fn timer_host_stub_tracks_liveness_without_installing_a_timer_driver() {
     use super::{
       is_current_thread_host_registration_active, record_timer_host_registration,
-      unregister_timer_host,
+      unregister_timer_host_stub,
     };
 
     let reserved = reserve_current_thread_host_registration().unwrap();
@@ -2432,14 +2439,14 @@ mod tests {
       "the stub timer host must not install a scheduler TimerDriver"
     );
 
-    unregister_timer_host(reserved.high, reserved.low);
+    unregister_timer_host_stub(reserved.high, reserved.low);
     assert!(
       !is_current_thread_host_registration_active(reserved.high, reserved.low),
       "unregisterTimerHost must evict the recorded stub registration"
     );
 
     let unclaimed = reserve_current_thread_host_registration().unwrap();
-    unregister_timer_host(unclaimed.high, unclaimed.low);
+    unregister_timer_host_stub(unclaimed.high, unclaimed.low);
     assert!(
       claim_host_registration_id(unclaimed.high, unclaimed.low).is_err(),
       "unregisterTimerHost must release an unclaimed reservation"

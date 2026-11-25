@@ -944,6 +944,7 @@ test.serial(
 
     process.env.npm_config_registry = `${registryServer.origin}/npm`
 
+    const emnapiVersion: string = require('emnapi/package.json').version
     const wasmRuntimeDir = join(
       tmpDir,
       'node_modules',
@@ -956,6 +957,10 @@ test.serial(
       JSON.stringify({
         name: '@napi-rs/wasm-runtime',
         version: '1.2.7',
+        peerDependencies: {
+          '@emnapi/core': `^1.7.1 || ${emnapiVersion}`,
+          '@emnapi/runtime': `^1.7.1 || ${emnapiVersion}`,
+        },
       }),
     )
 
@@ -980,7 +985,6 @@ test.serial(
         packageJsonPath: 'package.json',
       })
 
-      const emnapiVersion = require('emnapi/package.json').version
       const scopedPackageJson = JSON.parse(
         await readFile(
           join(tmpDir, 'npm', 'wasm32-wasip1', 'package.json'),
@@ -1057,6 +1061,71 @@ test.serial(
         version: '1.0.0',
         napi: {
           binaryName: 'test-incompatible-local-wasm-runtime',
+          targets: ['wasm32-wasip1'],
+        },
+      }),
+    )
+
+    try {
+      await createNpmDirs({
+        cwd: tmpDir,
+        packageJsonPath: 'package.json',
+      })
+
+      const scopedPackageJson = JSON.parse(
+        await readFile(
+          join(tmpDir, 'npm', 'wasm32-wasip1', 'package.json'),
+          'utf-8',
+        ),
+      )
+      t.is(scopedPackageJson.dependencies['@napi-rs/wasm-runtime'], '~1.2.7')
+      t.deepEqual(registryServer.requests, ['/npm/@napi-rs/wasm-runtime'])
+    } finally {
+      await registryServer.close()
+    }
+  },
+)
+
+test.serial(
+  'should skip legacy local @napi-rs/wasm-runtime without peerDependencies and fall back to registry',
+  async (t) => {
+    const { tmpDir, packageJsonPath } = t.context
+    const registryServer = await startRegistryServer({
+      'dist-tags': {
+        latest: '1.2.7',
+      },
+    })
+
+    process.env.npm_config_registry = `${registryServer.origin}/npm`
+
+    // Simulate a hoisted legacy @napi-rs/wasm-runtime@0.2.4 that declares v1
+    // dependencies on @emnapi/core and @emnapi/runtime instead of peerDependencies.
+    const wasmRuntimeDir = join(
+      tmpDir,
+      'node_modules',
+      '@napi-rs',
+      'wasm-runtime',
+    )
+    await mkdir(wasmRuntimeDir, { recursive: true })
+    await writeFile(
+      join(wasmRuntimeDir, 'package.json'),
+      JSON.stringify({
+        name: '@napi-rs/wasm-runtime',
+        version: '0.2.4',
+        dependencies: {
+          '@emnapi/core': '^1.1.0',
+          '@emnapi/runtime': '^1.1.0',
+        },
+      }),
+    )
+
+    await writeFile(
+      packageJsonPath,
+      JSON.stringify({
+        name: 'test-legacy-local-wasm-runtime',
+        version: '1.0.0',
+        napi: {
+          binaryName: 'test-legacy-local-wasm-runtime',
           targets: ['wasm32-wasip1'],
         },
       }),

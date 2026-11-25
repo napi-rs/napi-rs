@@ -143,7 +143,7 @@ fn napi_adapter_feature_surfaces_compile() {
     let _: fn(u32, u32) = napi_async_runtime::unregister_current_thread_task_host;
   }
 
-  #[cfg(any(feature = "napi-timer-host", feature = "napi-timer-host-stub"))]
+  #[cfg(feature = "napi-timer-host")]
   {
     let _: fn(u32, u32) = napi_async_runtime::unregister_timer_host;
   }

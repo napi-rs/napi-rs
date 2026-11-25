@@ -212,15 +212,18 @@ async function resolveLocalPackageVersion(
       continue
     }
     seenManifestPaths.add(manifest.manifestPath)
-    if (requiredPeers && manifest.peerDependencies) {
+    if (requiredPeers) {
       let incompatible = false
       for (const [peerName, expectedVersion] of Object.entries(requiredPeers)) {
-        const peerRange = manifest.peerDependencies[peerName]
-        if (
-          typeof peerRange === 'string' &&
-          peerRange.trim().length > 0 &&
-          !satisfies(expectedVersion, peerRange)
-        ) {
+        const peerRange = manifest.peerDependencies?.[peerName]
+        if (typeof peerRange !== 'string' || peerRange.trim().length === 0) {
+          debug.warn(
+            `Skipping local ${packageName}@${manifest.version}: missing peerDependencies[${JSON.stringify(peerName)}] (expected ${expectedVersion}); falling back to npm registry.`,
+          )
+          incompatible = true
+          break
+        }
+        if (!satisfies(expectedVersion, peerRange)) {
           debug.warn(
             `Skipping local ${packageName}@${manifest.version}: peerDependencies[${JSON.stringify(peerName)}] (${JSON.stringify(peerRange)}) does not satisfy ${expectedVersion}; falling back to npm registry.`,
           )
