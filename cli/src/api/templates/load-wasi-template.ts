@@ -120,6 +120,48 @@ function __wrapEmnapiContextDestroyForSettlement(
 }
 `
 
+const supportsContextAutoDestroyOptionHelper = `
+function __supportsContextAutoDestroyOption(__context) {
+  if (!__context) {
+    return false
+  }
+  if (typeof __context._removeBeforeExitListener === 'function') {
+    return true
+  }
+  try {
+    const __v =
+      typeof __context.getRuntimeVersions === 'function'
+        ? __context.getRuntimeVersions()?.version
+        : undefined
+    if (typeof __v === 'string') {
+      const __m = /^(\\d+)\\.(\\d+)\\.(\\d+)(?:-([0-9A-Za-z.-]+))?(?:\\+.*)?$/.exec(
+        __v,
+      )
+      if (__m) {
+        const __major = Number(__m[1])
+        const __minor = Number(__m[2])
+        const __patch = Number(__m[3])
+        const __pre = __m[4]
+        if (__major > 2) {
+          return true
+        }
+        if (__major === 2) {
+          if (__minor > 0 || __patch > 0 || __pre === undefined) {
+            return true
+          }
+          const __beta = /^beta\\.(\\d+)$/.exec(__pre)
+          if (__beta) {
+            return Number(__beta[1]) >= 4
+          }
+          return /^rc(?:\\.|$)/.test(__pre)
+        }
+      }
+    }
+  } catch {}
+  return false
+}
+`
+
 /**
  * Host teardown must run while the environment can still accept N-API calls,
  * and after the settlement drain: the drain is what lets the barrier's queued
@@ -2565,7 +2607,40 @@ async function __normalizeModuleForEmnapi(__module) {
       'provide structuredClone or MessageChannel support.',
   )
 }
-${emnapiContextDestroyWrapper}
+${emnapiContextDestroyWrapper}${supportsContextAutoDestroyOptionHelper}
+function __captureEmnapiAutoDestroyListener(__process) {
+  if (
+    !__process ||
+    typeof __process.prependListener !== 'function' ||
+    typeof __process.removeListener !== 'function'
+  ) {
+    return
+  }
+  let __autoDestroyListener
+  const __captureListener = (__event, __listener) => {
+    if (__event === 'beforeExit' && __autoDestroyListener === undefined) {
+      __autoDestroyListener = __listener
+    }
+  }
+  try {
+    // Run before existing newListener hooks so a hook that registers its own
+    // beforeExit listener cannot be mistaken for emnapi's registration.
+    __process.prependListener('newListener', __captureListener)
+  } catch {
+    return
+  }
+  return (__shouldRemove) => {
+    try {
+      __process.removeListener('newListener', __captureListener)
+    } catch {}
+    if (__shouldRemove && __autoDestroyListener !== undefined) {
+      try {
+        __process.removeListener('beforeExit', __autoDestroyListener)
+      } catch {}
+    }
+  }
+}
+
 function __attachCleanupError(__error, __cleanupError) {
   try {
     if (
@@ -3233,12 +3308,8 @@ async function __createManagedEmnapiContext(
 ${managedHostDisposeParam}) {
   const __process =
     typeof process === 'object' && process !== null ? process : undefined
-  let __beforeExitCount = -1
-  if (__process && typeof __process.listeners === 'function') {
-    try {
-      __beforeExitCount = __process.listeners('beforeExit').length
-    } catch {}
-  }
+  const __releaseAutoDestroyListener =
+    __captureEmnapiAutoDestroyListener(__process)
   let __emnapiContext
   let __contextInitializationError
   let __contextInitializationFailed = false
@@ -3252,28 +3323,18 @@ ${managedHostDisposeParam}) {
     // registering a process.once('beforeExit') listener altogether, and
     // suppressDestroy() removes any registered listener. Older emnapi releases
     // (1.x, 2.0.0-beta.2/beta.3) ignore \`autoDestroy: false\` and leave the
-    // listener attached after suppressDestroy(); the passive length check in
-    // \`finally\` removes it without installing a \`newListener\` hook.
+    // listener attached after suppressDestroy(); only for those runtimes do we
+    // remove the captured listener, so an app listener registered during
+    // beta.4+ setup (e.g. from an async_hooks init callback) is never removed.
     __emnapiContext.suppressDestroy()
   } catch (error) {
     __contextInitializationError = error
     __contextInitializationFailed = true
   } finally {
-    if (
-      __beforeExitCount !== -1 &&
-      __process &&
-      typeof __process.removeListener === 'function'
-    ) {
-      try {
-        const __afterListeners = __process.listeners('beforeExit')
-        if (__afterListeners.length > __beforeExitCount) {
-          __process.removeListener(
-            'beforeExit',
-            __afterListeners[__afterListeners.length - 1],
-          )
-        }
-      } catch {}
-    }
+    __releaseAutoDestroyListener?.(
+      __emnapiContext !== undefined &&
+        !__supportsContextAutoDestroyOption(__emnapiContext),
+    )
   }
   if (__emnapiContext === undefined) {
     throw __contextInitializationError
@@ -4845,14 +4906,41 @@ __completeWasiDisposal = __removeWasiExitListener
 // handler cannot yield, so it does not settle anything — but by then the process
 // is leaving and those promises have no observer left anyway.
 __retainWasiRollbackForRetry = __registerWasiExitListener
+${supportsContextAutoDestroyOptionHelper}
+function __captureEmnapiAutoDestroyListener() {
+  if (
+    typeof process.prependListener !== 'function' ||
+    typeof process.removeListener !== 'function'
+  ) {
+    return
+  }
+  let __autoDestroyListener
+  const __captureListener = (__event, __listener) => {
+    if (__event === 'beforeExit' && __autoDestroyListener === undefined) {
+      __autoDestroyListener = __listener
+    }
+  }
+  try {
+    // Run before existing newListener hooks so a hook that registers its own
+    // beforeExit listener cannot be mistaken for emnapi's registration.
+    process.prependListener('newListener', __captureListener)
+  } catch {
+    return
+  }
+  return (__shouldRemove) => {
+    try {
+      process.removeListener('newListener', __captureListener)
+    } catch {}
+    if (__shouldRemove && __autoDestroyListener !== undefined) {
+      try {
+        process.removeListener('beforeExit', __autoDestroyListener)
+      } catch {}
+    }
+  }
+}
 
 try {
-  let __beforeExitCount = -1
-  if (typeof process.listeners === 'function') {
-    try {
-      __beforeExitCount = process.listeners('beforeExit').length
-    } catch {}
-  }
+  const __releaseAutoDestroyListener = __captureEmnapiAutoDestroyListener()
   try {
     __emnapiContext = __wrapEmnapiContextDestroyForSettlement(
       __emnapiCreateContext(${emnapiContextOptions}),
@@ -4863,24 +4951,15 @@ try {
     // registering a process.once('beforeExit') listener altogether, and
     // suppressDestroy() removes any registered listener. Older emnapi releases
     // (1.x, 2.0.0-beta.2/beta.3) ignore \`autoDestroy: false\` and leave the
-    // listener attached after suppressDestroy(); the passive length check in
-    // \`finally\` removes it without installing a \`newListener\` hook.
+    // listener attached after suppressDestroy(); only for those runtimes do we
+    // remove the captured listener, so an app listener registered during
+    // beta.4+ setup (e.g. from an async_hooks init callback) is never removed.
     __emnapiContext.suppressDestroy()
   } finally {
-    if (
-      __beforeExitCount !== -1 &&
-      typeof process.removeListener === 'function'
-    ) {
-      try {
-        const __afterListeners = process.listeners('beforeExit')
-        if (__afterListeners.length > __beforeExitCount) {
-          process.removeListener(
-            'beforeExit',
-            __afterListeners[__afterListeners.length - 1],
-          )
-        }
-      } catch {}
-    }
+    __releaseAutoDestroyListener?.(
+      __emnapiContext !== undefined &&
+        !__supportsContextAutoDestroyOption(__emnapiContext),
+    )
   }
 
   ;({

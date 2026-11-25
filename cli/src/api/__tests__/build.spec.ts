@@ -5990,18 +5990,21 @@ napi-derive = { path = "napi-derive-stub" }
     // `$NAPI_TYPE_DEF_TMP_FOLDER` so typegen generates non-empty `.d.ts` files.
     const cargoPath = join(projectDir, 'bin', 'cargo')
     const cargoScript = await readFile(cargoPath, 'utf8')
-    await writeFile(
-      cargoPath,
-      cargoScript.replace(
-        'exit 0\n',
-        `if [ -n "$NAPI_TYPE_DEF_TMP_FOLDER" ]; then
+    const patchedCargoScript = cargoScript.replace(
+      /\nexit 0\n$/,
+      `\nif [ -n "$NAPI_TYPE_DEF_TMP_FOLDER" ]; then
   mkdir -p "$NAPI_TYPE_DEF_TMP_FOLDER"
-  printf '%s\\n' '{"kind":"fn","name":"sum","def":"export declare function sum(a: number, b: number): number"}' > "$NAPI_TYPE_DEF_TMP_FOLDER/no_root_dts_crate"
+  printf '%s\\n' '{"kind":"fn","name":"sum","def":"function sum(a: number, b: number): number"}' > "$NAPI_TYPE_DEF_TMP_FOLDER/no_root_dts_crate"
 fi
 exit 0
 `,
-      ),
     )
+    t.not(
+      patchedCargoScript,
+      cargoScript,
+      'cargo shim must patch the final build exit 0',
+    )
+    await writeFile(cargoPath, patchedCargoScript)
 
     const cliRequire = createRequire(import.meta.url)
     const emnapiVersion: string = cliRequire('emnapi/package.json').version
@@ -6086,8 +6089,20 @@ exit 0
       for (const file of wasiFiles) {
         baselineContents.set(file, await readFile(join(distDir, file), 'utf8'))
       }
-      // Verify relative import from `nested/binding.d.cts` was rebased to `./nested/types.js`
-      // and fallbackBinding was emitted into the generated root binding.cjs.
+      // Verify emitted type definitions (`export declare function sum`), relative
+      // import rebasing (`./nested/types.js`), and fallbackBinding in binding.cjs.
+      t.true(
+        baselineContents
+          .get('no-root-dts-crate.wasip1.d.cts')!
+          .includes(
+            'export declare function sum(a: number, b: number): number',
+          ),
+      )
+      t.true(
+        baselineContents
+          .get('binding.cjs')!
+          .includes('module.exports.sum = nativeBinding.sum'),
+      )
       t.true(
         baselineContents
           .get('no-root-dts-crate.wasip1.d.cts')!
@@ -6104,8 +6119,15 @@ exit 0
           .includes("require('./webcontainer-fallback.cjs')"),
       )
 
-      // 2. Replace root dts with a sentinel and run WASI build with `noRootDts: true`.
+      // 2. Delete all baseline generated WASI/binding files, replace root dts
+      //    with a sentinel, and run WASI build with `noRootDts: true` so the
+      //    parity check proves every file was genuinely re-emitted without root dts.
       const sentinel = '// preserved root binding.d.cts\n'
+      await Promise.all([
+        ...wasiFiles.map((file) => rm(join(distDir, file), { force: true })),
+        rm(join(distDir, 'wasi-worker.mjs'), { force: true }),
+        rm(join(distDir, 'wasi-worker-browser.mjs'), { force: true }),
+      ])
       await writeFile(rootDtsPath, sentinel)
 
       const noRootDtsWasiOutputs = await (

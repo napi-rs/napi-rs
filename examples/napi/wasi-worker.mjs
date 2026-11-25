@@ -144,27 +144,50 @@ function __writeCrashReport(report, error) {
     return
   }
   const header = new Int32Array(report, 0, 3)
-  if (Atomics.compareExchange(header, 0, 0, 1) !== 0) {
+  if (Atomics.load(header, 0) === 2) {
+    return
+  }
+  const body = new Uint8Array(report, 12)
+  let bytes
+  try {
+    const isObject =
+      error !== null && (typeof error === 'object' || typeof error === 'function')
+    const rawName = isObject ? error.name : undefined
+    const name = typeof rawName === 'string' ? rawName : 'Error'
+    const rawMessage = isObject ? error.message : undefined
+    const message = typeof rawMessage === 'string' ? rawMessage : String(error)
+    const rawStack = isObject ? error.stack : undefined
+    const stack = typeof rawStack === 'string' ? rawStack : undefined
+    const encoder = new TextEncoder()
+    bytes = encoder.encode(JSON.stringify({ name, message, stack }))
+    if (bytes.length > body.length) {
+      bytes = encoder.encode(
+        JSON.stringify({
+          name: name.slice(0, Math.min(128, body.length >> 5)),
+          message: message.slice(0, body.length >> 3),
+        }),
+      )
+    }
+    if (bytes.length > body.length) {
+      bytes = encoder.encode('{"name":"Error","message":"Worker crashed"}')
+    }
+  } catch {
+    try {
+      bytes = new TextEncoder().encode('{"name":"Error","message":"Worker crashed"}')
+    } catch {}
+  }
+  const state = Atomics.compareExchange(header, 0, 0, 1)
+  if (state !== 0) {
+    if (state === 1) {
+      try {
+        Atomics.wait(header, 0, 1, 50)
+      } catch {}
+    }
     return
   }
   let length = 0
   try {
-    const body = new Uint8Array(report, 12)
-    const isObject =
-      error !== null && (typeof error === 'object' || typeof error === 'function')
-    const name = isObject && typeof error.name === 'string' ? error.name : 'Error'
-    const message = isObject && typeof error.message === 'string'
-      ? error.message
-      : String(error)
-    const stack = isObject && typeof error.stack === 'string' ? error.stack : undefined
-    const encoder = new TextEncoder()
-    let bytes = encoder.encode(JSON.stringify({ name, message, stack }))
-    if (bytes.length > body.length) {
-      bytes = encoder.encode(
-        JSON.stringify({ name, message: message.slice(0, body.length >> 3) }),
-      )
-    }
-    if (bytes.length <= body.length) {
+    if (bytes && bytes.length <= body.length) {
       body.set(bytes)
       length = bytes.length
     }
@@ -172,6 +195,9 @@ function __writeCrashReport(report, error) {
   } finally {
     Atomics.store(header, 1, length)
     Atomics.store(header, 0, 2)
+    try {
+      Atomics.notify(header, 0)
+    } catch {}
   }
 }
 

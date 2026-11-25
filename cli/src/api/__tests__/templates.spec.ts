@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -5416,7 +5417,7 @@ test('declarative fallbackBinding supports string shorthand, processVersion guar
   t.is(esmOut.__napiBindingTarget, 'wasm32-wasip1')
 })
 
-test('Node CJS and deferred WASI loaders remove legacy beforeExit listeners passively without prependListener(newListener)', async (t) => {
+test('Node CJS and deferred WASI loaders only remove legacy emnapi beforeExit listeners and never remove app listeners on beta.4+', async (t) => {
   const nodeLoader = createWasiBinding('test', '@scope/test')
   const deferredLoader = createWasiDeferredBrowserBinding('test')
 
@@ -5424,66 +5425,60 @@ test('Node CJS and deferred WASI loaders remove legacy beforeExit listeners pass
     ['node cjs', nodeLoader],
     ['deferred', deferredLoader],
   ] as const) {
-    t.false(
+    t.true(
       code.includes('__captureEmnapiAutoDestroyListener'),
-      `${label} must not emit the old newListener capture helper`,
+      `${label} must capture emnapi auto-destroy listeners by identity`,
+    )
+    t.true(
+      code.includes('__supportsContextAutoDestroyOption'),
+      `${label} must detect emnapi >= 2.0.0-beta.4 autoDestroy support`,
     )
     t.false(
-      code.includes("prependListener('newListener'"),
-      `${label} must not call prependListener('newListener')`,
+      code.includes('__beforeExitCount'),
+      `${label} must not track beforeExit listeners by length`,
     )
   }
 
-  // Test the deferred loader's real `__createManagedEmnapiContext` against both
-  // beta.4 (adds 0 listeners) and older emnapi (adds 1 beforeExit listener,
-  // including when suppressDestroy() throws).
-  const fnSource =
+  // Verify `__supportsContextAutoDestroyOption` semver & method detection directly.
+  const supportsFn = new Function(
+    `${generatedFunction(deferredLoader, '__supportsContextAutoDestroyOption')}\nreturn __supportsContextAutoDestroyOption`,
+  )() as (ctx: unknown) => boolean
+  t.false(supportsFn(undefined))
+  t.true(supportsFn({ _removeBeforeExitListener() {} }))
+  t.false(supportsFn({ getRuntimeVersions: () => ({ version: '1.7.1' }) }))
+  t.false(
+    supportsFn({ getRuntimeVersions: () => ({ version: '2.0.0-alpha.5' }) }),
+  )
+  t.false(
+    supportsFn({ getRuntimeVersions: () => ({ version: '2.0.0-beta.3' }) }),
+  )
+  t.true(
+    supportsFn({ getRuntimeVersions: () => ({ version: '2.0.0-beta.4' }) }),
+  )
+  t.true(supportsFn({ getRuntimeVersions: () => ({ version: '2.0.0-rc.1' }) }))
+  t.true(supportsFn({ getRuntimeVersions: () => ({ version: '2.0.0' }) }))
+  t.true(
+    supportsFn({ getRuntimeVersions: () => ({ version: '2.1.0-alpha.1' }) }),
+  )
+  t.true(supportsFn({ getRuntimeVersions: () => ({ version: '3.0.0' }) }))
+
+  // Deferred loader runner using a real Node EventEmitter as `process`.
+  const deferredFnSource =
     generatedFunction(
       deferredLoader,
       '__wrapEmnapiContextDestroyForSettlement',
     ) +
     '\n' +
+    generatedFunction(deferredLoader, '__supportsContextAutoDestroyOption') +
+    '\n' +
+    generatedFunction(deferredLoader, '__captureEmnapiAutoDestroyListener') +
+    '\n' +
     generatedFunction(deferredLoader, '__attachCleanupError') +
     '\nasync ' +
     generatedFunction(deferredLoader, '__createManagedEmnapiContext')
 
-  const makeMockProcess = () => {
-    const beforeExit: Array<() => void> = [() => {}]
-    const calls: string[] = []
-    return {
-      beforeExit,
-      calls,
-      proc: {
-        listeners(event: string) {
-          if (event === 'beforeExit') {
-            return [...beforeExit]
-          }
-          return []
-        },
-        once(event: string, fn: () => void) {
-          calls.push(`once:${event}`)
-          if (event === 'beforeExit') {
-            beforeExit.push(fn)
-          }
-        },
-        removeListener(event: string, fn: () => void) {
-          calls.push(`removeListener:${event}`)
-          if (event === 'beforeExit') {
-            const idx = beforeExit.indexOf(fn)
-            if (idx !== -1) {
-              beforeExit.splice(idx, 1)
-            }
-          }
-        },
-        prependListener() {
-          throw new Error('prependListener must not be called')
-        },
-      },
-    }
-  }
-
-  const runManaged = (
-    proc: unknown,
+  const runDeferred = (
+    proc: EventEmitter,
     createContext: (opts: unknown) => unknown,
   ) =>
     new Function(
@@ -5494,56 +5489,192 @@ let __moduleLifecycleDestroyDepth = 0
 function __createLifecycleReentryError(op) { return new Error(op) }
 function __registerManagedEmnapiContext() { return () => {} }
 function __registerManagedBeforeExitListener() {}
-${fnSource}
+${deferredFnSource}
 return __createManagedEmnapiContext(undefined, undefined)
 `,
     )(proc, createContext)
 
-  // Case 1: beta.4 ({ autoDestroy: false } registers zero listeners -> zero removeListener calls)
-  {
-    const { proc, beforeExit, calls } = makeMockProcess()
-    await runManaged(proc, (opts: any) => {
-      t.deepEqual(opts, { autoDestroy: false })
-      return {
-        suppressDestroy() {},
-        destroy() {},
-      }
-    })
-    t.is(beforeExit.length, 1)
-    t.deepEqual(calls, [])
-  }
+  // Node CJS loader runner using the emitted helpers and context setup block.
+  const nodeStart = nodeLoader.indexOf(
+    '  const __releaseAutoDestroyListener = __captureEmnapiAutoDestroyListener()\n',
+  )
+  t.true(nodeStart > 0)
+  const nodeEnd = nodeLoader.indexOf(
+    '\n  ;({\n    instance: __napiInstance,',
+    nodeStart,
+  )
+  t.true(nodeEnd > nodeStart)
+  const nodeFnSource =
+    generatedFunction(nodeLoader, '__supportsContextAutoDestroyOption') +
+    '\n' +
+    generatedFunction(nodeLoader, '__captureEmnapiAutoDestroyListener') +
+    '\nlet __emnapiContext\n' +
+    nodeLoader.slice(nodeStart, nodeEnd)
 
-  // Case 2: older emnapi registers a beforeExit listener even with autoDestroy: false
-  {
-    const { proc, beforeExit, calls } = makeMockProcess()
-    await runManaged(proc, () => {
-      proc.once('beforeExit', () => {})
-      return {
-        suppressDestroy() {},
-        destroy() {},
-      }
-    })
-    t.is(beforeExit.length, 1, 'appended beforeExit listener must be removed')
-    t.deepEqual(calls, ['once:beforeExit', 'removeListener:beforeExit'])
-  }
-
-  // Case 3: older emnapi registers a listener and suppressDestroy throws -> still removed in finally
-  {
-    const { proc, beforeExit } = makeMockProcess()
-    await t.throwsAsync(
-      () =>
-        runManaged(proc, () => {
-          proc.once('beforeExit', () => {})
-          return {
-            suppressDestroy() {
-              throw new Error('suppress failed')
-            },
-            destroy() {},
-          }
-        }),
-      { message: 'suppress failed' },
+  const runNodeCjs = (
+    proc: EventEmitter,
+    createContext: (opts: unknown) => unknown,
+  ) =>
+    new Function(
+      'process',
+      '__emnapiCreateContext',
+      '__wrapEmnapiContextDestroyForSettlement',
+      '__prepareWasmEnvCleanup',
+      '__isPreparingWasmEnvCleanup',
+      '__wasiSetImmediate',
+      nodeFnSource,
+    )(
+      proc,
+      createContext,
+      (ctx: unknown) => ctx,
+      undefined,
+      undefined,
+      () => {},
     )
-    t.is(beforeExit.length, 1, 'listener must be removed even on error')
+
+  for (const [label, runLoader] of [
+    ['deferred', runDeferred],
+    ['node cjs', runNodeCjs],
+  ] as const) {
+    // Case 1: beta.4+ (`_removeBeforeExitListener` or version >= 2.0.0-beta.4):
+    // if an async_hooks / MessageChannel init callback replaces or adds an app
+    // `beforeExit` listener during context creation, it must NEVER be removed.
+    for (const beta4Marker of [
+      { _removeBeforeExitListener() {} },
+      { getRuntimeVersions: () => ({ version: '2.0.0-beta.4' }) },
+    ]) {
+      const proc = new EventEmitter()
+      const oldAppListener = () => {}
+      const replacedAppListener = () => {}
+      proc.on('beforeExit', oldAppListener)
+      await runLoader(proc, (opts: any) => {
+        t.is(opts.autoDestroy, false, `${label}: passes autoDestroy: false`)
+        // Simulate an async_hooks init callback replacing an app beforeExit
+        // listener while `new Context({ autoDestroy: false })` creates its
+        // MessageChannel (emnapi beta.4 itself registers zero beforeExit hooks).
+        proc.removeListener('beforeExit', oldAppListener)
+        proc.on('beforeExit', replacedAppListener)
+        return {
+          ...beta4Marker,
+          suppressDestroy() {},
+          destroy() {},
+        }
+      })
+      t.deepEqual(
+        proc.listeners('beforeExit'),
+        [replacedAppListener],
+        `${label}: beta.4+ must not remove app beforeExit listener registered during context setup`,
+      )
+      t.is(
+        proc.listenerCount('newListener'),
+        0,
+        `${label}: newListener capture hook must always be cleaned up`,
+      )
+    }
+
+    // Case 2: older emnapi (1.x / 2.0.0-beta.3) ignores autoDestroy: false and
+    // registers a beforeExit listener -> captured and removed.
+    {
+      const proc = new EventEmitter()
+      const appListener = () => {}
+      proc.on('beforeExit', appListener)
+      await runLoader(proc, () => {
+        proc.once('beforeExit', () => {})
+        return {
+          getRuntimeVersions: () => ({ version: '2.0.0-beta.3' }),
+          suppressDestroy() {},
+          destroy() {},
+        }
+      })
+      t.deepEqual(
+        proc.listeners('beforeExit'),
+        [appListener],
+        `${label}: legacy emnapi beforeExit listener must be removed`,
+      )
+      t.is(proc.listenerCount('newListener'), 0)
+    }
+
+    // Case 3: older emnapi registers a listener and suppressDestroy throws ->
+    // still removed in finally.
+    {
+      const proc = new EventEmitter()
+      const appListener = () => {}
+      proc.on('beforeExit', appListener)
+      await t.throwsAsync(
+        async () =>
+          runLoader(proc, () => {
+            proc.once('beforeExit', () => {})
+            return {
+              suppressDestroy() {
+                throw new Error('suppress failed')
+              },
+              destroy() {},
+            }
+          }),
+        { message: 'suppress failed' },
+      )
+      t.deepEqual(
+        proc.listeners('beforeExit'),
+        [appListener],
+        `${label}: legacy listener must be removed even when suppressDestroy throws`,
+      )
+      t.is(proc.listenerCount('newListener'), 0)
+    }
+
+    // Case 4: older emnapi + existing `newListener` hook that drops an app
+    // listener (constant count) AND registers a secondary app listener ->
+    // only emnapi's listener is removed while remaining app listeners stay.
+    {
+      const proc = new EventEmitter()
+      const appListener1 = () => {}
+      const appListener2 = () => {}
+      const hookAppListener = () => {}
+      proc.on('beforeExit', appListener1)
+      proc.on('beforeExit', appListener2)
+      let hookRan = false
+      proc.on('newListener', (event: string) => {
+        if (event === 'beforeExit' && !hookRan) {
+          hookRan = true
+          proc.removeListener('beforeExit', appListener1)
+          proc.on('beforeExit', hookAppListener)
+        }
+      })
+      await runLoader(proc, () => {
+        proc.once('beforeExit', () => {})
+        return {
+          suppressDestroy() {},
+          destroy() {},
+        }
+      })
+      t.deepEqual(
+        proc.listeners('beforeExit'),
+        [appListener2, hookAppListener],
+        `${label}: only emnapi's exact listener must be removed`,
+      )
+      t.is(proc.listenerCount('newListener'), 1)
+    }
+
+    // Case 5: createContext throws (e.g. MessageChannel error on beta.4) after
+    // an async_hooks callback added an app beforeExit listener -> since
+    // `__emnapiContext` is undefined, the app listener must NOT be removed.
+    {
+      const proc = new EventEmitter()
+      const appAddedDuringInit = () => {}
+      await t.throwsAsync(
+        async () =>
+          runLoader(proc, () => {
+            proc.on('beforeExit', appAddedDuringInit)
+            throw new Error('MessageChannel init failed')
+          }),
+        { message: 'MessageChannel init failed' },
+      )
+      t.deepEqual(
+        proc.listeners('beforeExit'),
+        [appAddedDuringInit],
+        `${label}: failed context creation must not remove app beforeExit listener`,
+      )
+      t.is(proc.listenerCount('newListener'), 0)
+    }
   }
 })
 
@@ -5677,11 +5808,12 @@ return __createInstance
   }
 
   // Case 3: Async TypeError thrown during wasm `start` or `_initialize` (even
-  // BEFORE `beforeInit` runs!) must NOT retry instantiation a second time on
-  // the same memory/WASI instance, and must preserve the original TypeError!
+  // BEFORE `beforeInit` runs and even with message 'Invalid wasm source'!)
+  // must NOT retry instantiation a second time on the same memory/WASI
+  // instance, and must preserve the original TypeError!
   {
     let startInvocations = 0
-    const startError = new TypeError('wasm _initialize failed')
+    const startError = new TypeError('Invalid wasm source')
     const err = await t.throwsAsync(() =>
       runCreateInstance({
         moduleValue: foreignModule,
@@ -5973,4 +6105,276 @@ export class MessageHandler {
     worker.once('error', reject)
   })
   t.deepEqual(received, { received: { ping: 'early-message' } })
+})
+
+test('WASI worker __writeCrashReport bounds oversized error.name and waits for an in-progress writer', async (t) => {
+  const writeCrashReportSrc = generatedFunction(
+    WASI_WORKER_TEMPLATE,
+    '__writeCrashReport',
+  )
+  const browserWorkerCode = createWasiBrowserWorkerBinding(false, false)
+  t.true(
+    browserWorkerCode.includes(
+      'name: name.slice(0, Math.min(128, body.length >> 5))',
+    ),
+  )
+  t.true(browserWorkerCode.includes('Atomics.wait(header, 0, 1, 50)'))
+  t.true(browserWorkerCode.includes('Atomics.notify(header, 0)'))
+
+  const makeWriter = (threadIdValue = 7) =>
+    new Function(
+      'threadId',
+      `${writeCrashReportSrc}\nreturn __writeCrashReport`,
+    )(threadIdValue) as (report: SharedArrayBuffer, error: unknown) => void
+
+  // 1. Oversized error.name (5,000 bytes) must be truncated cleanly instead of
+  //    falling back to an empty length-0 report.
+  {
+    const writeCrashReport = makeWriter(11)
+    const report = new SharedArrayBuffer(4096)
+    const header = new Int32Array(report, 0, 3)
+    const oversized = Object.assign(new Error('worker boom'), {
+      name: 'N'.repeat(5000),
+    })
+    writeCrashReport(report, oversized)
+    t.is(Atomics.load(header, 0), 2)
+    const length = Atomics.load(header, 1)
+    t.true(length > 0 && length <= report.byteLength - 12)
+    t.is(Atomics.load(header, 2), 11)
+    const parsed = JSON.parse(
+      new TextDecoder().decode(new Uint8Array(report, 12, length).slice()),
+    )
+    t.true(typeof parsed.name === 'string' && parsed.name.length <= 128)
+    t.is(parsed.message, 'worker boom')
+  }
+
+  // 2. When even the truncated JSON (e.g. control chars escaping to \u0000)
+  //    overflows a tight buffer, the fixed short fallback JSON is written.
+  {
+    const writeCrashReport = makeWriter(13)
+    const report = new SharedArrayBuffer(12 + 52)
+    const header = new Int32Array(report, 0, 3)
+    const escaped = Object.assign(new Error('\u0000'.repeat(100)), {
+      name: '\u0000'.repeat(100),
+    })
+    writeCrashReport(report, escaped)
+    t.is(Atomics.load(header, 0), 2)
+    const length = Atomics.load(header, 1)
+    t.is(length, 43)
+    const parsed = JSON.parse(
+      new TextDecoder().decode(new Uint8Array(report, 12, length).slice()),
+    )
+    t.deepEqual(parsed, { name: 'Error', message: 'Worker crashed' })
+  }
+
+  // 3. Primary writer notifies waiting threads in `finally`, and a second
+  //    worker seeing `header[0] === 1` waits until `header[0]` flips to `2`.
+  //    Subscribe to worker `message`, `error`, and `exit` immediately upon
+  //    creation so scheduler delays can never lose the worker's reply.
+  {
+    const report = new SharedArrayBuffer(4096)
+    const header = new Int32Array(report, 0, 3)
+    const sync = new SharedArrayBuffer(4)
+    const syncView = new Int32Array(sync)
+    Atomics.store(header, 0, 1)
+
+    const worker = new Worker(
+      `
+const { parentPort, workerData } = require('node:worker_threads')
+const threadId = 22
+${writeCrashReportSrc}
+const syncView = new Int32Array(workerData.sync)
+Atomics.store(syncView, 0, 1)
+parentPort.postMessage({ type: 'ready' })
+Atomics.wait(syncView, 0, 1)
+const startedAt = Date.now()
+__writeCrashReport(workerData.report, new Error('second-writer'))
+parentPort.postMessage({
+  type: 'done',
+  elapsedMs: Date.now() - startedAt,
+  stateAfter: Atomics.load(new Int32Array(workerData.report, 0, 3), 0),
+})
+`,
+      { eval: true, workerData: { report, sync } },
+    )
+    t.teardown(() => worker.terminate())
+
+    let resolveReady!: () => void
+    let rejectReady!: (err: Error) => void
+    const readyPromise = new Promise<void>((resolve, reject) => {
+      resolveReady = resolve
+      rejectReady = reject
+    })
+    let doneSettled = false
+    const resultPromise = new Promise<{
+      elapsedMs: number
+      stateAfter: number
+    }>((resolve, reject) => {
+      worker.on('message', (msg: any) => {
+        if (msg?.type === 'ready') {
+          resolveReady()
+          return
+        }
+        if (msg?.type === 'done' && !doneSettled) {
+          doneSettled = true
+          resolve(msg)
+        }
+      })
+      worker.once('error', (err) => {
+        rejectReady(err)
+        if (!doneSettled) {
+          doneSettled = true
+          reject(err)
+        }
+      })
+      worker.once('exit', (exitCode) => {
+        const err = new Error(
+          `worker exited (${exitCode}) before posting completion`,
+        )
+        rejectReady(err)
+        if (!doneSettled) {
+          doneSettled = true
+          reject(err)
+        }
+      })
+    })
+
+    await readyPromise
+    // Release the worker into `__writeCrashReport` and publish the primary
+    // report shortly after so the worker wakes from `Atomics.wait(header, 0, 1, 50)`.
+    Atomics.store(syncView, 0, 2)
+    Atomics.notify(syncView, 0)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    const primaryBytes = new TextEncoder().encode(
+      JSON.stringify({ name: 'Primary', message: 'first-writer' }),
+    )
+    new Uint8Array(report, 12).set(primaryBytes)
+    Atomics.store(header, 2, 19)
+    Atomics.store(header, 1, primaryBytes.length)
+    Atomics.store(header, 0, 2)
+    Atomics.notify(header, 0)
+
+    const result = await resultPromise
+    t.is(result.stateAfter, 2)
+    t.is(Atomics.load(header, 2), 19)
+    const parsed = JSON.parse(
+      new TextDecoder().decode(
+        new Uint8Array(report, 12, Atomics.load(header, 1)).slice(),
+      ),
+    )
+    t.deepEqual(parsed, { name: 'Primary', message: 'first-writer' })
+  }
+
+  // 4. Primary writer calls `Atomics.notify(header, 0)` on completion, and a
+  //    worker encountering a stalled `header[0] === 1` wakes after the 50ms
+  //    bounded wait instead of returning immediately or hanging forever.
+  {
+    const report = new SharedArrayBuffer(4096)
+    const header = new Int32Array(report, 0, 3)
+    const notifyCalls: Array<{ sameBuffer: boolean; index: number }> = []
+    const originalNotify = Atomics.notify
+    Atomics.notify = ((
+      typedArray: Int32Array,
+      index: number,
+      count?: number,
+    ) => {
+      notifyCalls.push({
+        sameBuffer: typedArray.buffer === report,
+        index,
+      })
+      return originalNotify(typedArray, index, count)
+    }) as typeof Atomics.notify
+    try {
+      makeWriter(31)(report, new Error('primary'))
+    } finally {
+      Atomics.notify = originalNotify
+    }
+    t.deepEqual(notifyCalls, [{ sameBuffer: true, index: 0 }])
+    t.is(Atomics.load(header, 0), 2)
+
+    const stalledReport = new SharedArrayBuffer(4096)
+    const stalledHeader = new Int32Array(stalledReport, 0, 3)
+    Atomics.store(stalledHeader, 0, 1)
+    const stalledWorker = new Worker(
+      `
+const { parentPort, workerData } = require('node:worker_threads')
+const threadId = 32
+${writeCrashReportSrc}
+const startedAt = Date.now()
+__writeCrashReport(workerData.report, new Error('stalled-second'))
+parentPort.postMessage({
+  elapsedMs: Date.now() - startedAt,
+  stateAfter: Atomics.load(new Int32Array(workerData.report, 0, 3), 0),
+})
+`,
+      { eval: true, workerData: { report: stalledReport } },
+    )
+    t.teardown(() => stalledWorker.terminate())
+    const stalledResult = await new Promise<{
+      elapsedMs: number
+      stateAfter: number
+    }>((resolve, reject) => {
+      let settled = false
+      stalledWorker.once('message', (msg) => {
+        settled = true
+        resolve(msg)
+      })
+      stalledWorker.once('error', (err) => {
+        if (!settled) {
+          settled = true
+          reject(err)
+        }
+      })
+      stalledWorker.once('exit', (exitCode) => {
+        if (!settled) {
+          settled = true
+          reject(new Error(`stalled worker exited (${exitCode}) early`))
+        }
+      })
+    })
+    t.is(stalledResult.stateAfter, 1)
+    t.true(
+      stalledResult.elapsedMs >= 30 && stalledResult.elapsedMs < 2000,
+      `expected bounded ~50ms wait, got ${stalledResult.elapsedMs}ms`,
+    )
+  }
+
+  // 5. Error serialization runs BEFORE claiming `header[0] = 1`, so a slow
+  //    `.stack` getter on Worker A never holds the SAB lock and lets Worker B
+  //    publish its complete crash report cleanly.
+  {
+    const report = new SharedArrayBuffer(4096)
+    const header = new Int32Array(report, 0, 3)
+    const writeA = makeWriter(41)
+    const writeB = makeWriter(42)
+    let stateDuringSlowGetter = -1
+    let stackReads = 0
+    const slowError = {
+      name: 'SlowError',
+      message: 'slow-worker-a',
+      get stack() {
+        stackReads += 1
+        stateDuringSlowGetter = Atomics.load(header, 0)
+        // Simulate Worker B crashing while Worker A is still reading `.stack`.
+        writeB(report, new Error('fast-worker-b'))
+        return 'SlowError: slow-worker-a\n    at workerA'
+      },
+    }
+    writeA(report, slowError)
+    t.is(stackReads, 1, 'error.stack getter must be read strictly once')
+    t.is(
+      stateDuringSlowGetter,
+      0,
+      'SAB slot must remain unclaimed (0) while reading error properties',
+    )
+    t.is(Atomics.load(header, 0), 2)
+    t.is(Atomics.load(header, 2), 42)
+    const parsed = JSON.parse(
+      new TextDecoder().decode(
+        new Uint8Array(report, 12, Atomics.load(header, 1)).slice(),
+      ),
+    )
+    t.is(parsed.name, 'Error')
+    t.is(parsed.message, 'fast-worker-b')
+  }
 })

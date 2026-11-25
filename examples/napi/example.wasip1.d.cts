@@ -344,6 +344,11 @@ export declare class DisposableFieldHook {
   constructor(id: number, value: number, cb: () => void)
 }
 
+export declare class DisposableFinalizeCallback {
+  [globalThis.Symbol.dispose](): void
+  constructor(id: number, failOnFinalize: boolean, cb?: (() => void) | undefined | null)
+}
+
 export declare class DisposableNonDisposable {
   value: number
   constructor(id: number, value: number)
@@ -404,6 +409,8 @@ export declare class DisposableWeakHolder {
   isAlive(): boolean
   tryGetValue(): number | null
   tryUpgrade(): boolean
+  getPanics(): boolean
+  getMutPanics(): boolean
   tryToJs(): DisposableResource
 }
 
@@ -1412,6 +1419,8 @@ export declare function createExternalUtf16String(): string
  */
 export declare function createForeignExternal(): object
 
+export declare function createForeignWrappedObject(magic: number): object
+
 export declare function createFunction(): (arg: number) => number
 
 export declare function createI32ArrayFromExternal(): Int32Array
@@ -1860,6 +1869,8 @@ export declare function indexSetToRust(set: Set<string>): void
 
 export declare function intoInstanceDisposedInCallback(id: number, value: number, cb: (arg: object) => void): number
 
+export declare function intoTwoDisposableFinalizeCallbacks(firstId: number, secondId: number, secondCb: () => void, cb: (arg0: object, arg1: object) => void, firstCb?: (() => void) | undefined | null): void
+
 export declare function intoUtf8(s: string): string
 
 /**
@@ -2296,6 +2307,8 @@ export declare function readerWakerClonesAfterRead(stream: ReadableStream<Uint8A
 export declare function readFile(callback: (arg0: Error | undefined, arg1?: string | undefined | null) => void): void
 
 export declare function readFileAsync(path: string): Promise<import("buffer").Buffer>
+
+export declare function readForeignWrappedObject(obj: object): number
 
 export declare function readOptionalExternalAsyncFn(ext: ExternalObject<string> | undefined | null, gate: number): Promise<string | null>
 
@@ -2807,6 +2820,8 @@ export declare function withDisposableInstanceCallback(inst: DisposableResource,
 export declare function withinAsyncRuntimeIfAvailable(): void
 
 export declare function withoutAbortController(a: number, b: number): Promise<number>
+
+export declare function withTwoDisposableFinalizeCallbacks(first: DisposableFinalizeCallback, second: DisposableFinalizeCallback, cb: () => void): void
 
 export declare function xxh64Alias(input: import("buffer").Buffer): bigint
 
