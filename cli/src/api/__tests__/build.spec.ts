@@ -4993,6 +4993,7 @@ interface RecordingCargoProject {
     target?: string
     crossCompile?: boolean
     binaryOnly?: boolean
+    targetDir?: string
     jsBinding?: string
     dts?: string
     env?: Record<string, string>
@@ -5101,6 +5102,7 @@ exit 0
       target,
       crossCompile,
       binaryOnly,
+      targetDir,
       jsBinding,
       dts,
       env,
@@ -5141,6 +5143,7 @@ exit 0
           target,
           crossCompile,
           binaryOnly,
+          targetDir,
           jsBinding,
           dts,
           platform: true,
@@ -5586,11 +5589,15 @@ posixOnly(
       }),
     )
 
-    const artifactDir = join(projectDir, 'target', target, 'release')
+    const targetDir = join(projectDir, 'target')
+    const artifactDir = join(targetDir, target, 'release')
     await mkdir(artifactDir, { recursive: true })
     const srcWasmPath = join(artifactDir, 'wasi_debug_verify.wasm')
+    const originalStackSize = process.env.NAPI_WASI_STACK_SIZE
 
     try {
+      delete process.env.NAPI_WASI_STACK_SIZE
+
       // A valid reactor emits both .wasm and .debug.wasm and passes verification
       await writeFile(
         srcWasmPath,
@@ -5601,7 +5608,12 @@ posixOnly(
       )
       await t.notThrowsAsync(async () => {
         await (
-          await shim.run({ target, cannedMetadata: true, binaryOnly: true })
+          await shim.run({
+            target,
+            targetDir,
+            cannedMetadata: true,
+            binaryOnly: true,
+          })
         ).task
       })
       const distWasm = join(
@@ -5631,7 +5643,12 @@ posixOnly(
       )
       const err = await t.throwsAsync(async () => {
         await (
-          await shim.run({ target, cannedMetadata: true, binaryOnly: true })
+          await shim.run({
+            target,
+            targetDir,
+            cannedMetadata: true,
+            binaryOnly: true,
+          })
         ).task
       })
       t.regex(
@@ -5639,6 +5656,11 @@ posixOnly(
         /exports _start/,
       )
     } finally {
+      if (originalStackSize === undefined) {
+        delete process.env.NAPI_WASI_STACK_SIZE
+      } else {
+        process.env.NAPI_WASI_STACK_SIZE = originalStackSize
+      }
       shim.restoreEnv()
     }
   },
@@ -5708,7 +5730,8 @@ napi-derive = { path = "napi-derive-stub" }
     const distDir = join(projectDir, 'dist')
     await mkdir(distDir, { recursive: true })
 
-    const nativeArtifactDir = join(projectDir, 'target', target, 'release')
+    const targetDir = join(projectDir, 'target')
+    const nativeArtifactDir = join(targetDir, target, 'release')
     await mkdir(nativeArtifactDir, { recursive: true })
     await writeFile(
       join(nativeArtifactDir, 'libbinary_only_crate.so'),
@@ -5716,7 +5739,7 @@ napi-derive = { path = "napi-derive-stub" }
     )
 
     const wasiTarget = 'wasm32-wasip1'
-    const wasiArtifactDir = join(projectDir, 'target', wasiTarget, 'release')
+    const wasiArtifactDir = join(targetDir, wasiTarget, 'release')
     await mkdir(wasiArtifactDir, { recursive: true })
     await writeFile(
       join(wasiArtifactDir, 'binary_only_crate.wasm'),
@@ -5759,13 +5782,17 @@ napi-derive = { path = "napi-derive-stub" }
 
     const originalTypeDefFolder = process.env.NAPI_TYPE_DEF_TMP_FOLDER
     const originalEnvSentinel = process.env.NAPI_BINARY_ONLY_ENV_SENTINEL
+    const originalStackSize = process.env.NAPI_WASI_STACK_SIZE
 
     try {
+      delete process.env.NAPI_WASI_STACK_SIZE
+
       // 0. Baseline non-binaryOnly build proves `enableTypeDef` is active for
       //    this fixture and passes `NAPI_TYPE_DEF_TMP_FOLDER` to Cargo.
       await (
         await shim.run({
           target,
+          targetDir,
           jsBinding: 'binding.cjs',
           dts: 'binding.d.cts',
           cannedMetadata: true,
@@ -5800,6 +5827,7 @@ napi-derive = { path = "napi-derive-stub" }
       const nativeOutputs = await (
         await shim.run({
           target,
+          targetDir,
           binaryOnly: true,
           jsBinding: 'binding.cjs',
           dts: 'binding.d.cts',
@@ -5813,6 +5841,7 @@ napi-derive = { path = "napi-derive-stub" }
       const wasiOutputs = await (
         await shim.run({
           target: wasiTarget,
+          targetDir,
           binaryOnly: true,
           jsBinding: 'binding.cjs',
           dts: 'binding.d.cts',
@@ -5860,6 +5889,7 @@ napi-derive = { path = "napi-derive-stub" }
       const fallbackOutputs = await (
         await shim.run({
           target: wasiTarget,
+          targetDir,
           binaryOnly: true,
           jsBinding: 'binding.cjs',
           dts: 'binding.d.cts',
@@ -5887,6 +5917,11 @@ napi-derive = { path = "napi-derive-stub" }
       )
       t.notRegex(afterFallbackCalls[3].env, /^NAPI_TYPE_DEF_TMP_FOLDER=/m)
     } finally {
+      if (originalStackSize === undefined) {
+        delete process.env.NAPI_WASI_STACK_SIZE
+      } else {
+        process.env.NAPI_WASI_STACK_SIZE = originalStackSize
+      }
       if (originalTypeDefFolder === undefined) {
         delete process.env.NAPI_TYPE_DEF_TMP_FOLDER
       } else {

@@ -17,7 +17,7 @@ addon's `AsyncRuntime` backend (napi's `async-runtime` SPI).
   granular features so addons can opt into only the JS surface they ship:
   - `napi-backend`: `SharedAsyncRuntime` (`AsyncRuntime` SPI backend),
     `BindingRuntimeFlavor`, `install(options)` (resolves
-    `NAPI_ASYNC_RUNTIME_DRAIN_LINGER_US`), and `install_exact(options)` (no
+    `NAPI_RUNTIME_DRAIN_LINGER_US`), and `install_exact(options)` (no
     adapter-side env reads).
   - `napi-task-host` (implies `napi-backend`): `BindingHostRegistration`,
     `NativeCurrentThreadTaskHost`, and contract version 4's task-host exports
