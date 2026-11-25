@@ -458,10 +458,16 @@ export const instantiateNapiModule = (wasm, options) => realCore.instantiateNapi
       `const realRuntime = require(${JSON.stringify(realRuntimeEntry)})
 const isV1 = ${JSON.stringify(fakeCoreVersion.startsWith('1.'))}
 const adaptContext = (ctx) => {
-  if (isV1 && typeof ctx.createEnv === 'function') {
+  if (typeof ctx.createEnv === 'function') {
     const realCreateEnv = ctx.createEnv
-    ctx.createEnv = function (a, b, c, d, _e, _f) {
-      return realCreateEnv.call(this, a, b, c, d)
+    if (isV1 && realCreateEnv.length !== 6) {
+      ctx.createEnv = function (a, b, c, d, _e, _f) {
+        return realCreateEnv.apply(this, arguments)
+      }
+    } else if (!isV1 && realCreateEnv.length !== 4) {
+      ctx.createEnv = function (a, b, c, d) {
+        return realCreateEnv.apply(this, arguments)
+      }
     }
   }
   return ctx
@@ -480,10 +486,16 @@ module.exports = {
 const rt = createRequire(import.meta.url)(${JSON.stringify(realRuntimeEntry)})
 const isV1 = ${JSON.stringify(fakeCoreVersion.startsWith('1.'))}
 const adaptContext = (ctx) => {
-  if (isV1 && typeof ctx.createEnv === 'function') {
+  if (typeof ctx.createEnv === 'function') {
     const realCreateEnv = ctx.createEnv
-    ctx.createEnv = function (a, b, c, d, _e, _f) {
-      return realCreateEnv.call(this, a, b, c, d)
+    if (isV1 && realCreateEnv.length !== 6) {
+      ctx.createEnv = function (a, b, c, d, _e, _f) {
+        return realCreateEnv.apply(this, arguments)
+      }
+    } else if (!isV1 && realCreateEnv.length !== 4) {
+      ctx.createEnv = function (a, b, c, d) {
+        return realCreateEnv.apply(this, arguments)
+      }
     }
   }
   return ctx
@@ -582,8 +594,41 @@ const runArrayBufferCopyAssertion = async ({
   }
 }
 
+const coreHasNativeArrayBufferCopy = (() => {
+  const pkgRequire = createRequire(join(runtimeDirectory, 'package.json'))
+  const rawCore = pkgRequire('@emnapi/core')
+  const rawRuntime = pkgRequire('@emnapi/runtime')
+  const existingHooks = new Set(process.listeners('beforeExit'))
+  const probeContext = rawRuntime.createContext({ autoDestroy: false })
+  const hooks = process
+    .listeners('beforeExit')
+    .filter((hook) => !existingHooks.has(hook))
+  const sentinel = new Error('probe')
+  let hasNative = false
+  try {
+    rawCore.instantiateNapiModuleSync(abCopyModules.unshared, {
+      context: probeContext,
+      asyncWorkPoolSize: 0,
+      overwriteImports(importObject) {
+        hasNative =
+          typeof importObject?.emnapi?.emnapi_create_arraybuffer_copy ===
+          'function'
+        throw sentinel
+      },
+    })
+  } catch (error) {
+    if (error !== sentinel) {
+      throw error
+    }
+  } finally {
+    probeContext.destroy()
+    for (const hook of hooks) process.removeListener('beforeExit', hook)
+  }
+  return hasNative
+})()
+
 for (const format of ['cjs', 'esm', 'node-esm']) {
-  test(`${format}: emnapi_create_arraybuffer_copy works with native @emnapi/core ${coreVersion}`, async (t) => {
+  test(`${format}: emnapi_create_arraybuffer_copy works with installed @emnapi/core ${coreVersion}`, async (t) => {
     const runtime =
       format === 'cjs'
         ? require(join(runtimeDirectory, 'runtime.cjs'))
@@ -602,7 +647,7 @@ for (const format of ['cjs', 'esm', 'node-esm']) {
           t,
           asyncMode,
           shared,
-          expectShim: false,
+          expectShim: !coreHasNativeArrayBufferCopy,
         })
       }
     }
