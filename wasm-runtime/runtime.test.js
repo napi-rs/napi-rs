@@ -76,6 +76,14 @@ const createRuntimeFixture = async (generation) => {
       join(fixtureDirectory, 'dist', 'emnapi-compat.js'),
     ),
     cp(
+      join(runtimeDirectory, 'dist', 'emnapi-pairing.cjs'),
+      join(fixtureDirectory, 'dist', 'emnapi-pairing.cjs'),
+    ),
+    cp(
+      join(runtimeDirectory, 'dist', 'emnapi-pairing.js'),
+      join(fixtureDirectory, 'dist', 'emnapi-pairing.js'),
+    ),
+    cp(
       join(runtimeDirectory, 'dist', 'emnapi-plugins.cjs'),
       join(fixtureDirectory, 'dist', 'emnapi-plugins.cjs'),
     ),

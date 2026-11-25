@@ -328,4 +328,18 @@ export default defineConfig([
       },
     ],
   },
+  {
+    input: './emnapi-pairing.js',
+    output: [
+      {
+        format: 'esm',
+        file: './dist/emnapi-pairing.js',
+      },
+      {
+        format: 'commonjs',
+        exports: 'named',
+        file: './dist/emnapi-pairing.cjs',
+      },
+    ],
+  },
 ])

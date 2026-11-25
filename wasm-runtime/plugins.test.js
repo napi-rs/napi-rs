@@ -392,6 +392,14 @@ function stripNativeCopy(options) {
       join(root, 'dist', 'emnapi-compat.js'),
     ),
     cp(
+      join(runtimeDirectory, 'dist', 'emnapi-pairing.cjs'),
+      join(root, 'dist', 'emnapi-pairing.cjs'),
+    ),
+    cp(
+      join(runtimeDirectory, 'dist', 'emnapi-pairing.js'),
+      join(root, 'dist', 'emnapi-pairing.js'),
+    ),
+    cp(
       join(runtimeDirectory, 'dist', 'emnapi-plugins.cjs'),
       join(root, 'dist', 'emnapi-plugins.cjs'),
     ),
@@ -470,7 +478,19 @@ module.exports = {
       join(emnapiRtDir, 'index.js'),
       `import { createRequire } from 'node:module'
 const rt = createRequire(import.meta.url)(${JSON.stringify(realRuntimeEntry)})
-export const { Context, createContext, getDefaultContext } = rt
+const isV1 = ${JSON.stringify(fakeCoreVersion.startsWith('1.'))}
+const adaptContext = (ctx) => {
+  if (isV1 && typeof ctx.createEnv === 'function') {
+    const realCreateEnv = ctx.createEnv
+    ctx.createEnv = function (a, b, c, d, _e, _f) {
+      return realCreateEnv.call(this, a, b, c, d)
+    }
+  }
+  return ctx
+}
+export const Context = rt.Context
+export const createContext = (...args) => adaptContext(rt.createContext(...args))
+export const getDefaultContext = (...args) => adaptContext(rt.getDefaultContext(...args))
 export const version = ${JSON.stringify(fakeCoreVersion)}
 `,
     ),
@@ -616,3 +636,127 @@ for (const oldVersion of ['1.7.1', '2.0.0-beta.2', '2.0.0-beta.3']) {
     }
   })
 }
+
+test('emnapi_create_arraybuffer_copy fallback calls options.getMemory strictly once and handles frozen env + caller override', async (t) => {
+  const root = await createStrippedEmnapiFixture(t, '2.0.0-beta.3')
+  const cjsRuntime = createRequire(join(root, 'entry.cjs'))(
+    join(root, 'runtime.cjs'),
+  )
+  const esmRuntime = await import(pathToFileURL(join(root, 'runtime.js')).href)
+  const nodeEsmRuntime = await import(
+    pathToFileURL(join(root, 'runtime-node.js')).href
+  )
+
+  for (const runtime of [cjsRuntime, esmRuntime, nodeEsmRuntime]) {
+    // 1. Stateful getMemory callback: returns real memory on 1st call, wrong empty
+    //    memory on any subsequent call. Must be invoked strictly once!
+    {
+      const context = createTestContext(runtime, t)
+      const memory = new WebAssembly.Memory({ initial: 1, maximum: 4 })
+      const decoyMemory = new WebAssembly.Memory({ initial: 1, maximum: 1 })
+      let getMemoryCalls = 0
+      const { napiModule } = runtime.instantiateNapiModuleSync(
+        abCopyModules.unshared,
+        {
+          context,
+          asyncWorkPoolSize: 0,
+          getMemory(exports) {
+            getMemoryCalls += 1
+            return getMemoryCalls === 1 ? exports.memory : decoyMemory
+          },
+          overwriteImports(importObject) {
+            importObject.env = {
+              ...importObject.env,
+              ...importObject.napi,
+              ...importObject.emnapi,
+              memory,
+            }
+            return importObject
+          },
+        },
+      )
+      assert.equal(getMemoryCalls, 1)
+      assert.ok(napiModule.exports.copied instanceof ArrayBuffer)
+      assert.equal(
+        new TextDecoder().decode(new Uint8Array(napiModule.exports.copied)),
+        'hello-ab-copy',
+      )
+    }
+
+    // 2. Frozen env + frozen importObject without `emnapi_create_arraybuffer_copy`:
+    //    must clone cleanly without mutating the frozen objects.
+    {
+      const context = createTestContext(runtime, t)
+      const memory = new WebAssembly.Memory({ initial: 1, maximum: 4 })
+      let frozenEnv
+      let frozenImportObject
+      const { napiModule } = runtime.instantiateNapiModuleSync(
+        abCopyModules.unshared,
+        {
+          context,
+          asyncWorkPoolSize: 0,
+          overwriteImports(importObject) {
+            // Copy napi + emnapi_sync_memory explicitly, omitting emnapi_create_arraybuffer_copy
+            frozenEnv = Object.freeze({
+              memory,
+              napi_create_string_utf8:
+                importObject.napi.napi_create_string_utf8,
+              napi_set_named_property:
+                importObject.napi.napi_set_named_property,
+              napi_get_and_clear_last_exception:
+                importObject.napi.napi_get_and_clear_last_exception,
+              napi_create_arraybuffer:
+                importObject.napi.napi_create_arraybuffer,
+              emnapi_sync_memory: importObject.emnapi.emnapi_sync_memory,
+            })
+            frozenImportObject = Object.freeze({
+              ...importObject,
+              env: frozenEnv,
+            })
+            return frozenImportObject
+          },
+        },
+      )
+      assert.equal('emnapi_create_arraybuffer_copy' in frozenEnv, false)
+      assert.equal(frozenImportObject.env, frozenEnv)
+      assert.ok(napiModule.exports.copied instanceof ArrayBuffer)
+      assert.equal(
+        new TextDecoder().decode(new Uint8Array(napiModule.exports.copied)),
+        'hello-ab-copy',
+      )
+    }
+
+    // 3. Explicit caller-provided `env.emnapi_create_arraybuffer_copy` is preserved untouched.
+    {
+      const context = createTestContext(runtime, t)
+      const memory = new WebAssembly.Memory({ initial: 1, maximum: 4 })
+      let customCalls = 0
+      const { napiModule } = runtime.instantiateNapiModuleSync(
+        abCopyModules.unshared,
+        {
+          context,
+          asyncWorkPoolSize: 0,
+          overwriteImports(importObject) {
+            const fallback = importObject.emnapi.emnapi_create_arraybuffer_copy
+            const customCopy = (env, data, byteLength, result) => {
+              customCalls += 1
+              return fallback(env, data, byteLength, result)
+            }
+            importObject.env = Object.freeze({
+              ...importObject.env,
+              ...importObject.napi,
+              ...importObject.emnapi,
+              emnapi_create_arraybuffer_copy: customCopy,
+              memory,
+            })
+          },
+        },
+      )
+      assert.equal(customCalls, 5)
+      assert.equal(
+        new TextDecoder().decode(new Uint8Array(napiModule.exports.copied)),
+        'hello-ab-copy',
+      )
+    }
+  }
+})

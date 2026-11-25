@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
 import { once } from 'node:events'
 import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
@@ -6,7 +7,10 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import { Worker } from 'node:worker_threads'
+
+const execFileAsync = promisify(execFile)
 
 // CI points this at the installed tarball, so the fixtures run the packed
 // runtime files instead of the source tree.
@@ -136,6 +140,14 @@ const writeRuntimePackage = async (nodeModules) => {
     cp(
       join(runtimeDirectory, 'dist', 'emnapi-compat.js'),
       join(runtimePackage, 'dist', 'emnapi-compat.js'),
+    ),
+    cp(
+      join(runtimeDirectory, 'dist', 'emnapi-pairing.cjs'),
+      join(runtimePackage, 'dist', 'emnapi-pairing.cjs'),
+    ),
+    cp(
+      join(runtimeDirectory, 'dist', 'emnapi-pairing.js'),
+      join(runtimePackage, 'dist', 'emnapi-pairing.js'),
     ),
     cp(
       join(runtimeDirectory, 'dist', 'emnapi-plugins.cjs'),
@@ -578,4 +590,38 @@ test('a context from another emnapi generation is a clear error', async (t) => {
       ),
   )
   await assert.rejects(loader.async({ context: v2Foreign }), TypeError)
+})
+
+test('Node ESM entry imports cleanly under --no-experimental-require-module', async (t) => {
+  const root = await tempRoot(t)
+  await mkdir(join(root, 'node_modules', '@napi-rs'), { recursive: true })
+  await symlink(
+    runtimeDirectory,
+    join(root, 'node_modules', '@napi-rs', 'wasm-runtime'),
+    'dir',
+  )
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [
+      '--no-experimental-require-module',
+      '--input-type=module',
+      '-e',
+      `const rt = await import('@napi-rs/wasm-runtime')
+const ctx = rt.createContext({ autoDestroy: false })
+ctx.destroy()
+process.stdout.write(JSON.stringify({
+  hasInstantiate: typeof rt.instantiateNapiModule === 'function',
+  hasInstantiateSync: typeof rt.instantiateNapiModuleSync === 'function',
+  hasMessageHandler: typeof rt.MessageHandler === 'function',
+  hasWASI: typeof rt.WASI === 'function',
+}))`,
+    ],
+    { cwd: root },
+  )
+  assert.deepEqual(JSON.parse(stdout), {
+    hasInstantiate: true,
+    hasInstantiateSync: true,
+    hasMessageHandler: true,
+    hasWASI: true,
+  })
 })

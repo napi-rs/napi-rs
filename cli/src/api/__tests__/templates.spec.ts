@@ -2851,16 +2851,24 @@ return {
     )
     binding.setImmediate(() => steps.push('call queued before disposal'))
     t.is(queued.length, 2, label)
-    // The first turn fires before the crash disposal: it still reaches wasm.
+    // The first turn fires before any crash: it still reaches wasm.
     queued[0]()
 
+    // Queue another callback BEFORE the worker sets the shared crash flag and
+    // BEFORE disposal starts (`__wasiReentryClosed` is still false): once the
+    // crash flag is raised, the queued turn must NOT enter wasm.
+    binding.setImmediate(() =>
+      steps.push('call queued before crash fired before disposal'),
+    )
     binding.crash()
+    queued[2]()
+
     const disposal = binding.dispose()
     // Queued after the disposal started: dropped as well.
     binding.setImmediate(() => steps.push('call queued after disposal'))
-    // The second and third turns fire after the disposal: dropped.
+    // The remaining turns fire after the disposal: dropped.
     queued[1]()
-    queued[2]()
+    queued[3]()
 
     const error = await disposal.then(
       () => undefined,
@@ -5539,7 +5547,7 @@ return __createManagedEmnapiContext(undefined, undefined)
   }
 })
 
-test('deferred WASI loader normalizes cross-realm WebAssembly.Module lazily only after a pre-beforeInit TypeError', async (t) => {
+test('deferred WASI loader normalizes cross-realm WebAssembly.Module lazily only on synchronous Invalid wasm source TypeError', async (t) => {
   const code = createWasiDeferredBrowserBinding('test')
   const createInstanceFn =
     'async ' + generatedFunction(code, '__createInstance')
@@ -5550,12 +5558,14 @@ test('deferred WASI loader normalizes cross-realm WebAssembly.Module lazily only
     'deferred loader must not eagerly normalize WebAssembly.Module',
   )
   t.true(
-    createInstanceFn.includes('await __instantiateWithModule(__module)'),
-    'deferred loader must pass __module directly first',
+    createInstanceFn.includes(
+      '__instantiatePromise = __instantiateWithModule(__module)',
+    ),
+    'deferred loader must call __instantiateWithModule(__module) synchronously before awaiting',
   )
   t.true(
     createInstanceFn.includes(
-      '__napiInstance === undefined &&\n        __instantiateError instanceof TypeError &&\n        !(__module instanceof WebAssembly.Module)',
+      "__instantiateError instanceof TypeError &&\n        __instantiateError.message === 'Invalid wasm source' &&\n        !(__module instanceof WebAssembly.Module)",
     ),
   )
 
@@ -5572,6 +5582,7 @@ test('deferred WASI loader normalizes cross-realm WebAssembly.Module lazily only
     let normalizeCalls = 0
     const receivedModules: unknown[] = []
     const normalizedMarker = { normalized: true }
+    const memory = new WebAssembly.Memory({ initial: 1, maximum: 1 })
     const runner = new Function(
       '__resolveModule',
       '__normalizeModuleForEmnapi',
@@ -5601,14 +5612,16 @@ return __createInstance
         return normalizedMarker
       },
       class FakeWASI {},
-      () => new WebAssembly.Memory({ initial: 1, maximum: 1 }),
+      () => memory,
       async () => ({
         context: { features: {}, destroy() {} },
         destroy() {},
         destroyForModuleLifecycle() {},
         registerCleanup() {},
       }),
-      async (mod: unknown, opts: any) => {
+      // Deliberately NOT `async`: real `@emnapi/core` < 2.0.0-beta.4 throws
+      // `TypeError('Invalid wasm source')` synchronously before returning a Promise.
+      (mod: unknown, opts: any) => {
         receivedModules.push(mod)
         return instantiateImpl(mod, opts)
       },
@@ -5623,7 +5636,7 @@ return __createInstance
       () => {},
     )
     const result = await runner(moduleValue)
-    return { result, normalizeCalls, receivedModules, normalizedMarker }
+    return { result, normalizeCalls, receivedModules, normalizedMarker, memory }
   }
 
   // Case 1: beta.4 accepts foreign module directly -> zero normalize calls!
@@ -5641,40 +5654,67 @@ return __createInstance
     t.deepEqual(receivedModules, [foreignModule])
   }
 
-  // Case 2: older @emnapi/core rejects foreign module with TypeError before beforeInit -> lazily normalizes and retries once
+  // Case 2: pre-beta.4 `@emnapi/core` throws TypeError('Invalid wasm source')
+  // synchronously inside load() before WebAssembly.instantiate -> lazily
+  // normalizes and retries once!
   {
     const { normalizeCalls, receivedModules, normalizedMarker } =
       await runCreateInstance({
         moduleValue: foreignModule,
-        instantiateImpl: async (mod, opts) => {
+        instantiateImpl: (mod, opts) => {
           if (mod === foreignModule) {
             throw new TypeError('Invalid wasm source')
           }
-          const instance = { exports: {} }
-          opts.beforeInit?.({ instance })
-          return { instance, napiModule: { exports: {} } }
+          return Promise.resolve().then(() => {
+            const instance = { exports: {} }
+            opts.beforeInit?.({ instance })
+            return { instance, napiModule: { exports: {} } }
+          })
         },
       })
     t.is(normalizeCalls, 1)
     t.deepEqual(receivedModules, [foreignModule, normalizedMarker])
   }
 
-  // Case 3: TypeError thrown AFTER beforeInit ran -> must NOT normalize or retry
+  // Case 3: Async TypeError thrown during wasm `start` or `_initialize` (even
+  // BEFORE `beforeInit` runs!) must NOT retry instantiation a second time on
+  // the same memory/WASI instance, and must preserve the original TypeError!
   {
-    let normalizeCount = 0
-    await t.throwsAsync(
-      () =>
-        runCreateInstance({
-          moduleValue: foreignModule,
-          instantiateImpl: async (_mod, opts) => {
-            opts.beforeInit?.({ instance: { exports: {} } })
-            normalizeCount += 1
-            throw new TypeError('post-beforeInit TypeError')
-          },
-        }),
-      { message: 'post-beforeInit TypeError' },
+    let startInvocations = 0
+    const startError = new TypeError('wasm _initialize failed')
+    const err = await t.throwsAsync(() =>
+      runCreateInstance({
+        moduleValue: foreignModule,
+        instantiateImpl: async () => {
+          startInvocations += 1
+          // Notice beforeInit never runs; simulating a wasm start / _initialize throw.
+          throw startError
+        },
+      }),
     )
-    t.is(normalizeCount, 1)
+    t.is(err, startError)
+    t.is(
+      startInvocations,
+      1,
+      'instantiation must not run twice after an async TypeError from start/_initialize',
+    )
+  }
+
+  // Case 4: Synchronous TypeError with a different message must NOT normalize or retry.
+  {
+    let syncCalls = 0
+    const otherErr = new TypeError('options.beforeInit is not a function')
+    const err = await t.throwsAsync(() =>
+      runCreateInstance({
+        moduleValue: foreignModule,
+        instantiateImpl: () => {
+          syncCalls += 1
+          throw otherErr
+        },
+      }),
+    )
+    t.is(err, otherErr)
+    t.is(syncCalls, 1)
   }
 })
 
@@ -5831,10 +5871,13 @@ return {
       'ran',
       `
 let __wasiReentryClosed = false
+let __crashed = false
+function __hasWasiThreadCrashed() { return __crashed }
 ${scheduleDecl}
 ${gate}
 return {
   schedule: __wasiSetImmediate,
+  crash() { __crashed = true },
   close() { __wasiReentryClosed = true },
 }
 `,
@@ -5846,6 +5889,13 @@ return {
         resolve()
       })
     })
+    // Callback queued before worker raises shared crash flag (even while
+    // __wasiReentryClosed is still false) must be dropped on its turn.
+    runGate.schedule(() => {
+      ran.push('after-crash-before-close')
+    })
+    runGate.crash()
+    await new Promise((resolve) => setTimeout(resolve, 15))
     runGate.close()
     runGate.schedule(() => {
       ran.push('after-close')

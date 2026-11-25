@@ -1678,7 +1678,7 @@ let __wasiReentryClosed = false
  */
 function __wasiSetImmediate(callback) {
   return ${setImmediateScheduler}(function () {
-    if (!__wasiReentryClosed) {
+    if (!__wasiReentryClosed && !__hasWasiThreadCrashed()) {
       callback()
     }
   })
@@ -3808,31 +3808,28 @@ ${emnapiInjectBuffer}\
           }
         },
       })
-    let __napiModule
+    let __instantiatePromise
     try {
-      ;({
-        instance: __napiInstance,
-        napiModule: __napiModule,
-      } = await __instantiateWithModule(__module))
+      __instantiatePromise = __instantiateWithModule(__module)
     } catch (__instantiateError) {
-      // @emnapi/core >= 2.0.0-beta.4 accepts cross-realm WebAssembly.Modules
-      // directly via brand checks. Only fall back to structured-cloning into
-      // this realm when an older @emnapi/core rejects the foreign Module with
-      // a TypeError before \`beforeInit\` runs.
+      // @emnapi/core < 2.0.0-beta.4 checks \`wasmInput instanceof WebAssembly.Module\`
+      // synchronously inside \`load()\` and throws \`TypeError('Invalid wasm source')\`
+      // before calling \`WebAssembly.instantiate\`. Any failure once instantiation
+      // begins rejects the returned Promise asynchronously and never enters here.
       if (
-        __napiInstance === undefined &&
         __instantiateError instanceof TypeError &&
+        __instantiateError.message === 'Invalid wasm source' &&
         !(__module instanceof WebAssembly.Module)
       ) {
         const __normalizedModule = await __normalizeModuleForEmnapi(__module)
-        ;({
-          instance: __napiInstance,
-          napiModule: __napiModule,
-        } = await __instantiateWithModule(__normalizedModule))
+        __instantiatePromise = __instantiateWithModule(__normalizedModule)
       } else {
         throw __instantiateError
       }
     }
+    const { instance: __loadedInstance, napiModule: __napiModule } =
+      await __instantiatePromise
+    __napiInstance = __loadedInstance
 ${installInstanceHosts}\
     // \`instantiate()\` and \`createInstance().exports\` hand out this object; a
     // named module export does not travel with it. After the instance host

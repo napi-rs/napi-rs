@@ -25,7 +25,7 @@ function createArrayBufferCopyShim(
   emnapiSyncMemory,
   getInstance,
   getImportedMemory,
-  getMemoryOption,
+  getResolvedMemory,
 ) {
   return function emnapi_create_arraybuffer_copy(
     env,
@@ -50,13 +50,8 @@ function createArrayBufferCopyShim(
     }
     const instance = getInstance()
     const exports = instance && instance.exports
-    const getMemory = getMemoryOption()
     const memory =
-      (typeof getMemory === 'function' && exports
-        ? getMemory(exports)
-        : undefined) ||
-      (exports && exports.memory) ||
-      getImportedMemory()
+      getResolvedMemory() || (exports && exports.memory) || getImportedMemory()
     if (!memory || data + byteLength > memory.buffer.byteLength) {
       return 1 // napi_invalid_arg
     }
@@ -89,12 +84,10 @@ function createArrayBufferCopyShim(
 export function prepareInstantiateOptions(options, overridePlugins) {
   let wasmInstance
   let importedMemory
+  let resolvedMemory
   const getInstance = () => wasmInstance
   const getImportedMemory = () => importedMemory
-  const getMemoryOption = () =>
-    options != null && typeof options === 'object'
-      ? options.getMemory
-      : undefined
+  const getResolvedMemory = () => resolvedMemory
 
   const captureResult = (result) => {
     if (wasmInstance === undefined && result && result.instance) {
@@ -102,9 +95,19 @@ export function prepareInstantiateOptions(options, overridePlugins) {
     }
   }
 
+  const wrapGetMemory = (userGetMemory, receiver) =>
+    function getMemory() {
+      const memory = Reflect.apply(userGetMemory, receiver, arguments)
+      if (resolvedMemory === undefined && memory !== undefined) {
+        resolvedMemory = memory
+      }
+      return memory
+    }
+
   const wrapOverwriteImports = (userOverwriteImports, receiver) =>
     function overwriteImports(importObject) {
       let fallbackFn
+      let inputImportObject = importObject
       if (
         importObject != null &&
         typeof importObject === 'object' &&
@@ -122,19 +125,38 @@ export function prepareInstantiateOptions(options, overridePlugins) {
           importObject.emnapi.emnapi_sync_memory,
           getInstance,
           getImportedMemory,
-          getMemoryOption,
+          getResolvedMemory,
         )
-        importObject.emnapi.emnapi_create_arraybuffer_copy = fallbackFn
+        if (Object.isExtensible(importObject.emnapi)) {
+          importObject.emnapi.emnapi_create_arraybuffer_copy = fallbackFn
+        } else {
+          inputImportObject = Object.assign(
+            Object.create(Object.getPrototypeOf(importObject)),
+            importObject,
+            {
+              emnapi: Object.assign(
+                Object.create(Object.getPrototypeOf(importObject.emnapi)),
+                importObject.emnapi,
+                { emnapi_create_arraybuffer_copy: fallbackFn },
+              ),
+            },
+          )
+        }
       }
 
       const returned =
         typeof userOverwriteImports === 'function'
-          ? Reflect.apply(userOverwriteImports, receiver, [importObject])
+          ? Reflect.apply(userOverwriteImports, receiver, [inputImportObject])
           : undefined
       const finalImportObject =
         typeof returned === 'object' && returned !== null
           ? returned
-          : importObject
+          : inputImportObject
+
+      let outputImportObject =
+        typeof userOverwriteImports === 'function'
+          ? returned
+          : finalImportObject
 
       if (finalImportObject != null && typeof finalImportObject === 'object') {
         const env = finalImportObject.env
@@ -148,23 +170,32 @@ export function prepareInstantiateOptions(options, overridePlugins) {
             (typeof env.emnapi_sync_memory === 'function' ||
               typeof env.napi_create_arraybuffer === 'function')
           ) {
-            env.emnapi_create_arraybuffer_copy = fallbackFn
+            // Never mutate a caller-owned or frozen `env` / `importObject` in
+            // place; return a shallow clone with the fallback installed.
+            const nextEnv = Object.assign(
+              Object.create(Object.getPrototypeOf(env)),
+              env,
+              { emnapi_create_arraybuffer_copy: fallbackFn },
+            )
+            outputImportObject = Object.assign(
+              Object.create(Object.getPrototypeOf(finalImportObject)),
+              finalImportObject,
+              { env: nextEnv },
+            )
           }
         }
       }
       if (
         importedMemory === undefined &&
-        importObject != null &&
-        typeof importObject === 'object' &&
-        importObject.env != null &&
-        typeof importObject.env === 'object'
+        inputImportObject != null &&
+        typeof inputImportObject === 'object' &&
+        inputImportObject.env != null &&
+        typeof inputImportObject.env === 'object'
       ) {
-        importedMemory = importObject.env.memory
+        importedMemory = inputImportObject.env.memory
       }
 
-      return typeof userOverwriteImports === 'function'
-        ? returned
-        : finalImportObject
+      return outputImportObject
     }
 
   const wrapBeforeInit = (userBeforeInit, receiver) =>
@@ -195,11 +226,13 @@ export function prepareInstantiateOptions(options, overridePlugins) {
     'overwriteImports',
   )
   const canOverrideBeforeInit = canOverrideProperty(options, 'beforeInit')
+  const canOverrideGetMemory = canOverrideProperty(options, 'getMemory')
 
   if (
     !canOverridePlugins &&
     !canOverrideOverwriteImports &&
-    !canOverrideBeforeInit
+    !canOverrideBeforeInit &&
+    !canOverrideGetMemory
   ) {
     return { options, captureResult }
   }
@@ -222,6 +255,13 @@ export function prepareInstantiateOptions(options, overridePlugins) {
           return original
         }
         return wrapBeforeInit(original, target)
+      }
+      if (key === 'getMemory' && canOverrideGetMemory) {
+        const original = Reflect.get(target, key)
+        if (typeof original !== 'function') {
+          return original
+        }
+        return wrapGetMemory(original, target)
       }
       return Reflect.get(target, key)
     },
