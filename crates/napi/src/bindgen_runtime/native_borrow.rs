@@ -228,7 +228,12 @@ fn take_ready_pending_dispose(borrows: &mut NativeBorrowMap, key: usize) -> Opti
   }
 }
 
-fn complete_pending_dispose(pending: PendingDispose, mode: ReleaseMode) {
+fn complete_pending_dispose(
+  pending: PendingDispose,
+  mode: ReleaseMode,
+  batch: &mut crate::bindgen_runtime::DeferredDisposeBatch,
+  has_more: bool,
+) {
   let sync_env = match mode {
     ReleaseMode::LiveEnv(env)
       if pending.owner_thread == thread::current().id() && pending.owner_env == env =>
@@ -242,10 +247,7 @@ fn complete_pending_dispose(pending: PendingDispose, mode: ReleaseMode) {
   };
 
   if let Some(env) = sync_env {
-    let result = unsafe { (pending.finalize)(env, pending.ptr) };
-    if let Err(err) = result {
-      crate::bindgen_runtime::throw_deferred_finalize_error(env, err);
-    }
+    unsafe { batch.run(env, pending.ptr, pending.finalize, has_more) };
   } else {
     #[cfg(all(feature = "napi4", not(feature = "noop")))]
     if let Some(handle) = pending.custom_gc {
@@ -282,9 +284,12 @@ fn finish_release_work(work: TakenReleaseWork, mode: ReleaseMode) {
     }
   }
 
-  for pending in work.pending_disposals {
-    complete_pending_dispose(pending, mode);
+  let total = work.pending_disposals.len();
+  let mut batch = crate::bindgen_runtime::DeferredDisposeBatch::new(true);
+  for (idx, pending) in work.pending_disposals.into_iter().enumerate() {
+    complete_pending_dispose(pending, mode, &mut batch, idx + 1 < total);
   }
+  batch.finish();
 }
 
 fn release_roots_direct(
@@ -546,12 +551,26 @@ impl Drop for NativeBorrowBarrier {
     drop(leftover);
     // Release any disposable `into_instance` pins acquired in this callback frame
     // AFTER popping the barrier from TLS so deferred finalizers can freely re-enter.
+    // Throw only after running the whole batch so an earlier error cannot fail
+    // later finalizers' Node-API calls with `PendingException`.
     if let Some(pins) = barrier_pins {
+      let mut pending_disposals = Vec::new();
       for (env, pin) in pins {
         if let Some(pending) = pin.release_inner() {
-          complete_pending_dispose(pending, ReleaseMode::LiveEnv(env));
+          pending_disposals.push((env, pending));
         }
       }
+      let total = pending_disposals.len();
+      let mut batch = crate::bindgen_runtime::DeferredDisposeBatch::new(true);
+      for (idx, (env, pending)) in pending_disposals.into_iter().enumerate() {
+        complete_pending_dispose(
+          pending,
+          ReleaseMode::LiveEnv(env),
+          &mut batch,
+          idx + 1 < total,
+        );
+      }
+      batch.finish();
     }
   }
 }
@@ -1127,7 +1146,9 @@ impl Drop for NativeBorrowGuard {
         Some(env) => ReleaseMode::LiveEnv(env),
         None => ReleaseMode::Abandon,
       };
-      complete_pending_dispose(pending, mode);
+      let mut batch = crate::bindgen_runtime::DeferredDisposeBatch::new(true);
+      complete_pending_dispose(pending, mode, &mut batch, false);
+      batch.finish();
     }
   }
 }
@@ -1189,7 +1210,9 @@ impl Drop for DisposePinGuard {
       take_ready_pending_dispose(&mut borrows, key)
     };
     if let Some(pending) = pending {
-      complete_pending_dispose(pending, ReleaseMode::Abandon);
+      let mut batch = crate::bindgen_runtime::DeferredDisposeBatch::new(true);
+      complete_pending_dispose(pending, ReleaseMode::Abandon, &mut batch, false);
+      batch.finish();
     }
   }
 }
@@ -1447,7 +1470,9 @@ pub(crate) fn release_disposable_ref_count(env: sys::napi_env, ptr: *mut c_void)
     }
   };
   if let Some(pending) = pending {
-    complete_pending_dispose(pending, ReleaseMode::LiveEnv(env));
+    let mut batch = crate::bindgen_runtime::DeferredDisposeBatch::new(true);
+    complete_pending_dispose(pending, ReleaseMode::LiveEnv(env), &mut batch, false);
+    batch.finish();
   }
 }
 

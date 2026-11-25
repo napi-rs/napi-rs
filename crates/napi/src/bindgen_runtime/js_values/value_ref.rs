@@ -337,7 +337,18 @@ impl<T: 'static> WeakReference<T> {
     }
   }
 
+  /// Returns a shared reference to the underlying native value if still alive.
+  ///
+  /// # Panics
+  ///
+  /// Panics for `#[napi(disposable)]` classes because returning `&T` without
+  /// pinning cannot prevent re-entrant `[Symbol.dispose]()` from freeing `T`
+  /// while the reference is live. Call [`WeakReference::upgrade`] instead.
   pub fn get(&self) -> Option<&T> {
+    assert!(
+      !crate::bindgen_runtime::is_disposable_class::<T>(),
+      "WeakReference::get is not supported for #[napi(disposable)] classes; call WeakReference::upgrade(env) instead"
+    );
     if !self.is_alive() {
       None
     } else {
@@ -345,7 +356,18 @@ impl<T: 'static> WeakReference<T> {
     }
   }
 
+  /// Returns an exclusive reference to the underlying native value if still alive.
+  ///
+  /// # Panics
+  ///
+  /// Panics for `#[napi(disposable)]` classes because returning `&mut T` without
+  /// pinning cannot prevent re-entrant `[Symbol.dispose]()` from freeing `T`
+  /// while the reference is live. Call [`WeakReference::upgrade`] instead.
   pub fn get_mut(&mut self) -> Option<&mut T> {
+    assert!(
+      !crate::bindgen_runtime::is_disposable_class::<T>(),
+      "WeakReference::get_mut is not supported for #[napi(disposable)] classes; call WeakReference::upgrade(env) instead"
+    );
     if !self.is_alive() {
       None
     } else {

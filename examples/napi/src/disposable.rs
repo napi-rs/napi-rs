@@ -118,6 +118,7 @@ pub fn open_disposable_async_gate(gate_id: u32) {
 pub fn release_disposable_async_gate(gate_id: u32) {
   if let Some(gate) = ASYNC_GATES.lock().unwrap().get(&gate_id).cloned() {
     gate.released.store(true, Ordering::SeqCst);
+    gate.entered_notify.notify_waiters();
     gate.release_notify.notify_waiters();
   }
 }
@@ -130,9 +131,9 @@ pub async fn wait_disposable_async_gate_entered(gate_id: u32) -> Result<()> {
     .get(&gate_id)
     .cloned()
     .ok_or_else(|| Error::new(Status::InvalidArg, format!("unknown async gate {gate_id}")))?;
-  while !gate.entered.load(Ordering::SeqCst) {
+  while !gate.entered.load(Ordering::SeqCst) && !gate.released.load(Ordering::SeqCst) {
     let notified = gate.entered_notify.notified();
-    if gate.entered.load(Ordering::SeqCst) {
+    if gate.entered.load(Ordering::SeqCst) || gate.released.load(Ordering::SeqCst) {
       break;
     }
     notified.await;
@@ -249,7 +250,8 @@ impl Drop for DisposableSharedView<'_> {
     // child view `S` runs its `Drop` impl during `finalize_class_instance`.
     let parent_drops = get_disposable_drop_count(self.id);
     let observed_value = self.res.value;
-    debug_assert_eq!(self.res.tag, format!("res-{}", self.id));
+    debug_assert_eq!(self.res.id, self.id);
+    let _ = std::hint::black_box(self.res.tag.as_bytes());
     record_shared_view_drop(self.id, observed_value, parent_drops);
   }
 }
@@ -295,18 +297,34 @@ pub struct DisposableWeakHolder {
 #[napi]
 impl DisposableWeakHolder {
   #[napi]
-  pub fn is_alive(&self) -> bool {
-    self.inner.get().is_some()
+  pub fn is_alive(&self, env: Env) -> Result<bool> {
+    Ok(self.inner.upgrade(env)?.is_some())
   }
 
   #[napi]
-  pub fn try_get_value(&self) -> Option<u32> {
-    self.inner.get().map(|r| r.value)
+  pub fn try_get_value(&self, env: Env) -> Result<Option<u32>> {
+    Ok(self.inner.upgrade(env)?.map(|r| r.value))
   }
 
   #[napi]
   pub fn try_upgrade(&self, env: Env) -> Result<bool> {
     Ok(self.inner.upgrade(env)?.is_some())
+  }
+
+  #[napi]
+  pub fn get_panics(&self) -> bool {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+      let _ = self.inner.get();
+    }))
+    .is_err()
+  }
+
+  #[napi]
+  pub fn get_mut_panics(&mut self) -> bool {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+      let _ = self.inner.get_mut();
+    }))
+    .is_err()
   }
 
   #[napi]
@@ -564,6 +582,110 @@ pub fn into_instance_disposed_in_callback(
   let inst = DisposableResource::new(id, value, None).into_instance(env)?;
   cb.call(inst.as_object(env))?;
   Ok((*inst).value)
+}
+
+struct ForeignWrappedPayload {
+  magic: u64,
+}
+
+#[napi]
+pub fn create_foreign_wrapped_object(env: &Env, magic: u32) -> Result<Object<'_>> {
+  let mut obj = Object::new(env)?;
+  obj.wrap(
+    ForeignWrappedPayload {
+      magic: magic as u64,
+    },
+    None,
+  )?;
+  Ok(obj)
+}
+
+#[napi]
+pub fn read_foreign_wrapped_object(obj: Object) -> Result<u32> {
+  let payload: &mut ForeignWrappedPayload = obj.unwrap()?;
+  Ok(payload.magic as u32)
+}
+
+#[napi(disposable, custom_finalize)]
+pub struct DisposableFinalizeCallback {
+  id: u32,
+  fail_on_finalize: bool,
+  cb: Option<FunctionRef<(), ()>>,
+}
+
+impl Drop for DisposableFinalizeCallback {
+  fn drop(&mut self) {
+    record_drop(self.id);
+  }
+}
+
+impl ObjectFinalize for DisposableFinalizeCallback {
+  fn finalize(self, env: Env) -> Result<()> {
+    record_finalize(self.id);
+    if let Some(cb) = self.cb.as_ref() {
+      let func = cb.borrow_back(&env)?;
+      func.call(())?;
+    }
+    if self.fail_on_finalize {
+      return Err(Error::new(
+        Status::GenericFailure,
+        format!("batch finalize failed for {}", self.id),
+      ));
+    }
+    Ok(())
+  }
+}
+
+#[napi]
+impl DisposableFinalizeCallback {
+  #[napi(constructor)]
+  pub fn new(id: u32, fail_on_finalize: bool, cb: Option<Function<(), ()>>) -> Result<Self> {
+    Ok(Self {
+      id,
+      fail_on_finalize,
+      cb: match cb {
+        Some(f) => Some(f.create_ref()?),
+        None => None,
+      },
+    })
+  }
+}
+
+#[napi]
+pub fn with_two_disposable_finalize_callbacks(
+  _first: &DisposableFinalizeCallback,
+  _second: &DisposableFinalizeCallback,
+  cb: Function<(), ()>,
+) -> Result<()> {
+  cb.call(())
+}
+
+#[napi]
+pub fn into_two_disposable_finalize_callbacks(
+  env: &Env,
+  first_id: u32,
+  second_id: u32,
+  second_cb: Function<(), ()>,
+  cb: Function<FnArgs<(Object, Object)>, ()>,
+  first_cb: Option<Function<(), ()>>,
+) -> Result<()> {
+  let (fail_on_finalize, first_cb_ref) = match first_cb {
+    Some(f) => (false, Some(f.create_ref()?)),
+    None => (true, None),
+  };
+  let first = DisposableFinalizeCallback {
+    id: first_id,
+    fail_on_finalize,
+    cb: first_cb_ref,
+  }
+  .into_instance(env)?;
+  let second = DisposableFinalizeCallback {
+    id: second_id,
+    fail_on_finalize: false,
+    cb: Some(second_cb.create_ref()?),
+  }
+  .into_instance(env)?;
+  cb.call((first.as_object(env), second.as_object(env)).into())
 }
 
 #[napi(disposable, constructor)]

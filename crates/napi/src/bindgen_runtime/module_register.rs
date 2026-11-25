@@ -614,14 +614,12 @@ fn run_deferred_disposals(
   disposals: Vec<DeferredDisposeItem>,
   throw_on_err: bool,
 ) {
-  for item in disposals {
-    let result = unsafe { (item.finalize)(env, item.ptr) };
-    if throw_on_err {
-      if let Err(err) = result {
-        crate::bindgen_runtime::throw_deferred_finalize_error(env, err);
-      }
-    }
+  let total = disposals.len();
+  let mut batch = crate::bindgen_runtime::DeferredDisposeBatch::new(throw_on_err);
+  for (idx, item) in disposals.into_iter().enumerate() {
+    unsafe { batch.run(env, item.ptr, item.finalize, idx + 1 < total) };
   }
+  batch.finish();
 }
 
 /// Deletes the sentinel's strong reference, which the caller swapped out of `sentinel_ref`, so it
@@ -1512,6 +1510,10 @@ pub unsafe extern "C" fn napi_register_module_v1(
   // reason/cause.
   if let Some(registration) = registration {
     crate::error::cache_reflect_intrinsics_for_env(env, registration);
+    #[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
+    if HAS_DISPOSABLE_CLASSES.load(Ordering::Acquire) {
+      crate::bindgen_runtime::cache_disposed_objects_for_env(env, registration);
+    }
   }
 
   // Registration keys are compile-time strings. Avoid `RandomState` so WASI module

@@ -145,16 +145,340 @@ pub(crate) fn throw_deferred_finalize_error(env: sys::napi_env, err: Error) {
   }
 }
 
-/// Checks whether `val` is a JS object belonging to class `T`.
-///
-/// On napi8 native builds this verifies the unforgeable type tag (which survives
-/// `napi_remove_wrap`); on wasm and pre-napi8 builds it checks `napi_instanceof`
-/// against the class constructor registered for `env`.
-#[allow(clippy::extra_unused_type_parameters)]
-unsafe fn is_matching_class_instance<T: MaybeTypeTag>(
+pub(crate) enum DeferredBatchError {
+  JsException(sys::napi_env, sys::napi_value),
+  RustError(sys::napi_env, Error),
+}
+
+/// Runs a batch of deferred `#[napi(disposable)]` finalizers while ensuring an
+/// error or JS exception thrown by an earlier finalizer does not leave a pending
+/// JS exception on `env` that would fail later finalizers' Node-API calls with
+/// `Status::PendingException`.
+pub(crate) struct DeferredDisposeBatch {
+  throw_on_err: bool,
+  had_preexisting_exception: Option<(sys::napi_env, bool)>,
+  first_err: Option<DeferredBatchError>,
+}
+
+impl DeferredDisposeBatch {
+  pub(crate) fn new(throw_on_err: bool) -> Self {
+    Self {
+      throw_on_err,
+      had_preexisting_exception: None,
+      first_err: None,
+    }
+  }
+
+  fn env_had_preexisting_exception(&mut self, env: sys::napi_env) -> bool {
+    if env.is_null() {
+      return false;
+    }
+    if let Some((cached_env, had)) = self.had_preexisting_exception {
+      if cached_env == env {
+        return had;
+      }
+    }
+    let mut is_pending = false;
+    let had = unsafe { sys::napi_is_exception_pending(env, &mut is_pending) }
+      == sys::Status::napi_ok
+      && is_pending;
+    if self.had_preexisting_exception.is_none() {
+      self.had_preexisting_exception = Some((env, had));
+    }
+    had
+  }
+
+  pub(crate) unsafe fn run(
+    &mut self,
+    env: sys::napi_env,
+    ptr: *mut c_void,
+    finalize: unsafe fn(sys::napi_env, *mut c_void) -> Result<()>,
+    has_more: bool,
+  ) {
+    // Only probe `napi_is_exception_pending` when clearing a JS exception may
+    // actually be needed (multi-item batches, teardown, or after an earlier
+    // batch error). This keeps single-item batches overhead-free and preserves
+    // unit tests that use fake `napi_env` handles without a Node host.
+    let need_js_exception_isolation = has_more || !self.throw_on_err || self.first_err.is_some();
+    let had_preexisting = if need_js_exception_isolation {
+      self.env_had_preexisting_exception(env)
+    } else {
+      false
+    };
+
+    let result = unsafe { finalize(env, ptr) };
+
+    if need_js_exception_isolation && !had_preexisting && !env.is_null() {
+      let mut is_pending = false;
+      if unsafe { sys::napi_is_exception_pending(env, &mut is_pending) } == sys::Status::napi_ok
+        && is_pending
+      {
+        let mut exc = ptr::null_mut();
+        if unsafe { sys::napi_get_and_clear_last_exception(env, &mut exc) } == sys::Status::napi_ok
+        {
+          if self.throw_on_err && self.first_err.is_none() {
+            self.first_err = Some(DeferredBatchError::JsException(env, exc));
+          }
+          return;
+        }
+      }
+    }
+
+    if self.throw_on_err && self.first_err.is_none() {
+      if let Err(err) = result {
+        self.first_err = Some(DeferredBatchError::RustError(env, err));
+      }
+    }
+  }
+
+  pub(crate) fn finish(self) {
+    match self.first_err {
+      Some(DeferredBatchError::JsException(env, exc)) => {
+        if !env.is_null() {
+          let mut is_pending = false;
+          if unsafe { sys::napi_is_exception_pending(env, &mut is_pending) } == sys::Status::napi_ok
+            && !is_pending
+          {
+            unsafe { sys::napi_throw(env, exc) };
+          }
+        }
+      }
+      Some(DeferredBatchError::RustError(env, err)) => {
+        throw_deferred_finalize_error(env, err);
+      }
+      None => {}
+    }
+  }
+}
+
+#[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
+fn has_pending_exception(env: sys::napi_env) -> bool {
+  let mut is_pending = false;
+  let status = unsafe { sys::napi_is_exception_pending(env, &mut is_pending) };
+  status != sys::Status::napi_ok || is_pending
+}
+
+#[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
+fn clear_pending_exception(env: sys::napi_env) {
+  let mut is_pending = false;
+  if unsafe { sys::napi_is_exception_pending(env, &mut is_pending) } == sys::Status::napi_ok
+    && is_pending
+  {
+    let mut ignored = ptr::null_mut();
+    unsafe { sys::napi_get_and_clear_last_exception(env, &mut ignored) };
+  }
+}
+
+#[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
+fn napi_value_type(env: sys::napi_env, value: sys::napi_value) -> Option<sys::napi_valuetype> {
+  let mut value_type = 0;
+  if unsafe { sys::napi_typeof(env, value, &mut value_type) } != sys::Status::napi_ok {
+    clear_pending_exception(env);
+    return None;
+  }
+  Some(value_type)
+}
+
+/// Captures and caches a private `{ map: new WeakMap(), get, set }` holder for
+/// `registration` during module registration so wasm and pre-napi8 builds can
+/// track disposed JS instances by exact object identity without invoking user
+/// JS mid-dispose or relying on forgeable `napi_instanceof`.
+#[cfg(all(
+  not(feature = "noop"),
+  not(all(feature = "napi8", not(target_family = "wasm")))
+))]
+pub(crate) fn cache_disposed_objects_for_env(
+  env: sys::napi_env,
+  registration: env_registration::RegistrationId,
+) {
+  if has_pending_exception(env) {
+    return;
+  }
+  let mut global = ptr::null_mut();
+  if unsafe { sys::napi_get_global(env, &mut global) } != sys::Status::napi_ok {
+    clear_pending_exception(env);
+    return;
+  }
+  let mut weak_map_ctor = ptr::null_mut();
+  if unsafe { sys::napi_get_named_property(env, global, c"WeakMap".as_ptr(), &mut weak_map_ctor) }
+    != sys::Status::napi_ok
+  {
+    clear_pending_exception(env);
+    return;
+  }
+  if napi_value_type(env, weak_map_ctor) != Some(sys::ValueType::napi_function) {
+    return;
+  }
+  let mut proto = ptr::null_mut();
+  if unsafe { sys::napi_get_named_property(env, weak_map_ctor, c"prototype".as_ptr(), &mut proto) }
+    != sys::Status::napi_ok
+  {
+    clear_pending_exception(env);
+    return;
+  }
+  if napi_value_type(env, proto) != Some(sys::ValueType::napi_object) {
+    return;
+  }
+  let mut get_fn = ptr::null_mut();
+  let mut set_fn = ptr::null_mut();
+  if unsafe { sys::napi_get_named_property(env, proto, c"get".as_ptr(), &mut get_fn) }
+    != sys::Status::napi_ok
+    || unsafe { sys::napi_get_named_property(env, proto, c"set".as_ptr(), &mut set_fn) }
+      != sys::Status::napi_ok
+  {
+    clear_pending_exception(env);
+    return;
+  }
+  if napi_value_type(env, get_fn) != Some(sys::ValueType::napi_function)
+    || napi_value_type(env, set_fn) != Some(sys::ValueType::napi_function)
+  {
+    return;
+  }
+  let mut map = ptr::null_mut();
+  if unsafe { sys::napi_new_instance(env, weak_map_ctor, 0, ptr::null(), &mut map) }
+    != sys::Status::napi_ok
+  {
+    clear_pending_exception(env);
+    return;
+  }
+  if napi_value_type(env, map) != Some(sys::ValueType::napi_object) {
+    return;
+  }
+  // Sanity-probe `set`/`get` on both an inserted object and a distinct absent
+  // object so a spoofed `WeakMap` whose `get` always returns a truthy number
+  // is rejected once at registration.
+  let mut probe = ptr::null_mut();
+  let mut probe_absent = ptr::null_mut();
+  let mut probe_val = ptr::null_mut();
+  let mut set_ret = ptr::null_mut();
+  let mut get_ret = ptr::null_mut();
+  let mut absent_ret = ptr::null_mut();
+  let mut got_id = 0u32;
+  let probe_ok = unsafe {
+    sys::napi_create_object(env, &mut probe) == sys::Status::napi_ok
+      && sys::napi_create_object(env, &mut probe_absent) == sys::Status::napi_ok
+      && sys::napi_create_uint32(env, 1, &mut probe_val) == sys::Status::napi_ok
+      && sys::napi_call_function(
+        env,
+        map,
+        set_fn,
+        2,
+        [probe, probe_val].as_ptr(),
+        &mut set_ret,
+      ) == sys::Status::napi_ok
+      && sys::napi_call_function(env, map, get_fn, 1, &probe, &mut get_ret) == sys::Status::napi_ok
+      && napi_value_type(env, get_ret) == Some(sys::ValueType::napi_number)
+      && sys::napi_get_value_uint32(env, get_ret, &mut got_id) == sys::Status::napi_ok
+      && got_id == 1
+      && sys::napi_call_function(env, map, get_fn, 1, &probe_absent, &mut absent_ret)
+        == sys::Status::napi_ok
+      && napi_value_type(env, absent_ret) == Some(sys::ValueType::napi_undefined)
+  };
+  if !probe_ok {
+    clear_pending_exception(env);
+    return;
+  }
+  let mut holder = ptr::null_mut();
+  if unsafe { sys::napi_create_object(env, &mut holder) } != sys::Status::napi_ok {
+    clear_pending_exception(env);
+    return;
+  }
+  let properties = [
+    sys::napi_property_descriptor {
+      utf8name: c"map".as_ptr().cast(),
+      name: ptr::null_mut(),
+      method: None,
+      getter: None,
+      setter: None,
+      value: map,
+      attributes: sys::PropertyAttributes::default,
+      data: ptr::null_mut(),
+    },
+    sys::napi_property_descriptor {
+      utf8name: c"get".as_ptr().cast(),
+      name: ptr::null_mut(),
+      method: None,
+      getter: None,
+      setter: None,
+      value: get_fn,
+      attributes: sys::PropertyAttributes::default,
+      data: ptr::null_mut(),
+    },
+    sys::napi_property_descriptor {
+      utf8name: c"set".as_ptr().cast(),
+      name: ptr::null_mut(),
+      method: None,
+      getter: None,
+      setter: None,
+      value: set_fn,
+      attributes: sys::PropertyAttributes::default,
+      data: ptr::null_mut(),
+    },
+  ];
+  if unsafe { sys::napi_define_properties(env, holder, properties.len(), properties.as_ptr()) }
+    != sys::Status::napi_ok
+  {
+    clear_pending_exception(env);
+    return;
+  }
+  let mut reference = ptr::null_mut();
+  if unsafe { sys::napi_create_reference(env, holder, 1, &mut reference) } != sys::Status::napi_ok {
+    clear_pending_exception(env);
+    return;
+  }
+  if !env_registration::set_disposed_objects(registration, reference) {
+    let _ = unsafe { sys::napi_delete_reference(env, reference) };
+    clear_pending_exception(env);
+  }
+}
+
+#[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
+unsafe fn record_disposed_class_instance(
   env: sys::napi_env,
   val: sys::napi_value,
-  js_name_nul: &'static str,
+  class_id: std::num::NonZeroU32,
+) {
+  if has_pending_exception(env) {
+    return;
+  }
+  let Some(holder_ref) = env_registration::disposed_objects(env) else {
+    return;
+  };
+  let mut holder = ptr::null_mut();
+  if unsafe { sys::napi_get_reference_value(env, holder_ref, &mut holder) } != sys::Status::napi_ok
+    || holder.is_null()
+  {
+    clear_pending_exception(env);
+    return;
+  }
+  let mut map = ptr::null_mut();
+  let mut set_fn = ptr::null_mut();
+  let mut id_val = ptr::null_mut();
+  let mut ignored = ptr::null_mut();
+  let ok = unsafe {
+    sys::napi_get_named_property(env, holder, c"map".as_ptr(), &mut map) == sys::Status::napi_ok
+      && sys::napi_get_named_property(env, holder, c"set".as_ptr(), &mut set_fn)
+        == sys::Status::napi_ok
+      && sys::napi_create_uint32(env, class_id.get(), &mut id_val) == sys::Status::napi_ok
+      && sys::napi_call_function(env, map, set_fn, 2, [val, id_val].as_ptr(), &mut ignored)
+        == sys::Status::napi_ok
+  };
+  if !ok {
+    clear_pending_exception(env);
+  }
+}
+
+/// Checks whether an unwrapped/detached JS value `val` is a previously disposed
+/// instance of class `T`.
+///
+/// On napi8 native builds this verifies the unforgeable object type tag (which
+/// survives `napi_remove_wrap` and `Object.setPrototypeOf(res, null)`, and is
+/// absent on `Object.create(Cls.prototype)`). On wasm and pre-napi8 builds this
+/// checks the per-env `WeakMap` recorded at disposal time by exact JS object
+/// identity.
+unsafe fn is_disposed_class_instance<T: MaybeTypeTag>(
+  env: sys::napi_env,
+  val: sys::napi_value,
 ) -> Result<bool> {
   let mut value_type = 0;
   check_status!(
@@ -166,7 +490,6 @@ unsafe fn is_matching_class_instance<T: MaybeTypeTag>(
   }
   #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
   {
-    let _ = js_name_nul;
     let mut matches = false;
     check_status!(
       unsafe { sys::napi_check_object_type_tag(env, val, &T::type_tag(), &mut matches) },
@@ -176,23 +499,45 @@ unsafe fn is_matching_class_instance<T: MaybeTypeTag>(
   }
   #[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
   {
-    let Some(ctor_ref) = get_class_constructor_in_env(env, js_name_nul) else {
+    if has_pending_exception(env) {
+      return Err(Error::from_status(Status::PendingException));
+    }
+    let Some(expected_id) = class_identity::existing_class_id_of::<T>() else {
       return Ok(false);
     };
-    let mut ctor = ptr::null_mut();
-    check_status!(
-      unsafe { sys::napi_get_reference_value(env, ctor_ref, &mut ctor) },
-      "Failed to get constructor reference"
-    )?;
-    if ctor.is_null() {
+    let Some(holder_ref) = env_registration::disposed_objects(env) else {
+      return Ok(false);
+    };
+    let mut holder = ptr::null_mut();
+    if unsafe { sys::napi_get_reference_value(env, holder_ref, &mut holder) }
+      != sys::Status::napi_ok
+      || holder.is_null()
+    {
+      clear_pending_exception(env);
       return Ok(false);
     }
-    let mut is_instance_of = false;
-    check_status!(
-      unsafe { sys::napi_instanceof(env, val, ctor, &mut is_instance_of) },
-      "Failed to check instanceof"
-    )?;
-    Ok(is_instance_of)
+    let mut map = ptr::null_mut();
+    let mut get_fn = ptr::null_mut();
+    let mut result = ptr::null_mut();
+    let ok = unsafe {
+      sys::napi_get_named_property(env, holder, c"map".as_ptr(), &mut map) == sys::Status::napi_ok
+        && sys::napi_get_named_property(env, holder, c"get".as_ptr(), &mut get_fn)
+          == sys::Status::napi_ok
+        && sys::napi_call_function(env, map, get_fn, 1, &val, &mut result) == sys::Status::napi_ok
+    };
+    if !ok {
+      clear_pending_exception(env);
+      return Ok(false);
+    }
+    if napi_value_type(env, result) != Some(sys::ValueType::napi_number) {
+      return Ok(false);
+    }
+    let mut actual_id = 0u32;
+    if unsafe { sys::napi_get_value_uint32(env, result, &mut actual_id) } != sys::Status::napi_ok {
+      clear_pending_exception(env);
+      return Ok(false);
+    }
+    Ok(actual_id == expected_id.get())
   }
 }
 
@@ -213,7 +558,7 @@ pub unsafe fn map_class_unwrap_error<T: MaybeTypeTag>(
 ) -> Error {
   if status != sys::Status::napi_pending_exception {
     if let Some(js_name_nul) = disposable_class_js_name::<T>() {
-      match unsafe { is_matching_class_instance::<T>(env, napi_val, js_name_nul) } {
+      match unsafe { is_disposed_class_instance::<T>(env, napi_val) } {
         Ok(true) => {
           return Error::new(
             Status::InvalidArg,
@@ -278,7 +623,7 @@ unsafe fn dispose_class_instance_inner<T: ObjectFinalize + MaybeTypeTag + 'stati
     if unwrap_status == sys::Status::napi_pending_exception {
       return Ok(ptr::null_mut());
     }
-    if unsafe { is_matching_class_instance::<T>(env, this, js_name_nul)? } {
+    if unsafe { is_disposed_class_instance::<T>(env, this)? } {
       // Already disposed: `[Symbol.dispose]()` is idempotent.
       let mut undef = ptr::null_mut();
       check_status!(
@@ -291,19 +636,14 @@ unsafe fn dispose_class_instance_inner<T: ObjectFinalize + MaybeTypeTag + 'stati
   }
 
   // Validate class identity before detaching so a spoofed receiver of another
-  // class can never be removed or finalized as `T`.
+  // class or an untracked `env.wrap` object can never be removed or finalized as `T`.
   #[cfg(all(feature = "napi8", not(target_family = "wasm")))]
   unsafe {
     validate_type_tag(env, this, &T::type_tag(), js_name)?;
   }
   #[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
-  {
-    let matched_recorded =
-      class_identity::check_class_identity_for_dispose::<T>(wrapped_val, js_name)?;
-    if !matched_recorded && !unsafe { is_matching_class_instance::<T>(env, this, js_name_nul)? } {
-      return Err(class_identity::wrong_class_error(js_name));
-    }
-  }
+  let disposed_class_id =
+    class_identity::check_class_identity_for_dispose::<T>(wrapped_val, js_name)?;
 
   // Detach wrapper and reset the GC finalizer so GC will never run
   // `raw_finalize_unchecked` later, while preserving `object_ref` if any
@@ -314,6 +654,13 @@ unsafe fn dispose_class_instance_inner<T: ObjectFinalize + MaybeTypeTag + 'stati
     "Failed to detach disposed instance of class `{}`",
     js_name
   )?;
+
+  // Record exact JS object identity as disposed immediately after detaching
+  // so re-entrant calls inside `ObjectFinalize::finalize` also observe it.
+  #[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
+  unsafe {
+    record_disposed_class_instance(env, this, disposed_class_id);
+  }
 
   let has_live_refs = REFERENCE_MAP.with(|cell| {
     cell.borrow_mut(|map| {

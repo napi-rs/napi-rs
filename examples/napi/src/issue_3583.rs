@@ -49,10 +49,23 @@ pub fn open_borrow_gate(id: u32) {
 /// passes through.
 #[napi]
 pub fn close_borrow_gate(id: u32) {
-  let gates = BORROW_GATES.lock().unwrap();
-  if let Some(gate) = gates.get(&id) {
-    *gate.0.lock().unwrap() = true;
-    gate.1.notify_all();
+  {
+    let gates = BORROW_GATES.lock().unwrap();
+    if let Some(gate) = gates.get(&id) {
+      *gate.0.lock().unwrap() = true;
+      gate.1.notify_all();
+    }
+  }
+  let pending = {
+    let mut waiters = BORROW_GATE_WAITERS.lock().unwrap();
+    let (matched, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut waiters.pending)
+      .into_iter()
+      .partition(|(gate, _, _)| *gate == id);
+    waiters.pending = rest;
+    matched
+  };
+  for (_, _, deferred) in pending {
+    deferred.resolve(|_| Ok(()));
   }
 }
 

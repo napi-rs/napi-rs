@@ -7,6 +7,7 @@ import {
   DisposableCustomFinalize,
   DisposableDefaultCtor,
   DisposableFieldHook,
+  DisposableFinalizeCallback,
   DisposableNonDisposable,
   DisposableResource,
   DisposableSibling,
@@ -18,6 +19,7 @@ import {
   createDisposableAlignedZst,
   createDisposableByValue,
   createDisposableZst,
+  createForeignWrappedObject,
   getDisposableAlignedZstDropCount,
   getDisposableDropCount,
   getDisposableFinalizeCount,
@@ -25,17 +27,20 @@ import {
   getDisposableSharedViewDropObservation,
   getDisposableZstDropCount,
   intoInstanceDisposedInCallback,
+  intoTwoDisposableFinalizeCallbacks,
   openBorrowGate,
   openDisposableAsyncGate,
   readDisposableInstance,
   readDisposableInstanceFromObjectProperty,
   readDisposableRef,
   readDisposableRefStrict,
+  readForeignWrappedObject,
   releaseDisposableAsyncGate,
   waitDisposableAsyncGateEntered,
   waitForBorrowGateWaiters,
   wasmMemorySizeBytes,
   withDisposableInstanceCallback,
+  withTwoDisposableFinalizeCallbacks,
 } from '../index.cjs'
 
 let nextId = 10_000
@@ -184,10 +189,86 @@ test('wrong receivers throw and never dispose unrelated instances', (t) => {
   t.is(getDisposableDropCount(resId), 0)
   t.is(res.read(), 30)
 
+  // Foreign `JsObjectValue::wrap` object with forged prototype must be rejected
+  // without detaching or corrupting the foreign native payload.
+  const foreign = createForeignWrappedObject(0x123456)
+  Object.setPrototypeOf(foreign, DisposableResource.prototype)
+  t.throws(() => disposeMethod.call(foreign as never))
+  const foreignReadErr = t.throws(() => readDisposableRef(foreign as never))
+  t.truthy(foreignReadErr)
+  t.false(foreignReadErr!.message.includes('has already been disposed'))
+  t.is(readForeignWrappedObject(foreign), 0x123456)
+
   sibling[Symbol.dispose]()
   res[Symbol.dispose]()
   t.is(getDisposableDropCount(siblingId), 1)
   t.is(getDisposableDropCount(resId), 1)
+})
+
+test('disposal tracking uses exact object identity without invoking Symbol.hasInstance', (t) => {
+  // Plain object inheriting the prototype is NOT a disposed instance.
+  const fake = Object.create(DisposableResource.prototype) as DisposableResource
+  t.throws(() => fake[Symbol.dispose]())
+  const fakeReadErr = t.throws(() =>
+    DisposableResource.prototype.read.call(fake),
+  )
+  t.truthy(fakeReadErr)
+  t.false(fakeReadErr!.message.includes('has already been disposed'))
+  // Free function goes through `FromNapiRef` -> `map_class_unwrap_error` ->
+  // `is_disposed_class_instance` even on Node.js native (bypasses V8's
+  // prototype method FunctionTemplate brand check).
+  const fakeFnReadErr = t.throws(() => readDisposableRef(fake as never))
+  t.truthy(fakeFnReadErr)
+  t.false(fakeFnReadErr!.message.includes('has already been disposed'))
+
+  // A disposed instance with its prototype stripped remains recognized as disposed.
+  const id = allocId()
+  const res = new DisposableResource(id, 42)
+  res[Symbol.dispose]()
+  t.is(getDisposableDropCount(id), 1)
+  Object.setPrototypeOf(res, null)
+  t.is(DisposableResource.prototype[Symbol.dispose].call(res), undefined)
+  t.throws(
+    () => DisposableResource.prototype.read.call(res),
+    disposedMsg('DisposableResource'),
+  )
+  t.throws(() => readDisposableRef(res), disposedMsg('DisposableResource'))
+
+  // Overriding `[Symbol.hasInstance]` must never be called during disposal or unwrap error mapping.
+  let hasInstanceCalls = 0
+  const prevDesc = Object.getOwnPropertyDescriptor(
+    DisposableResource,
+    Symbol.hasInstance,
+  )
+  Object.defineProperty(DisposableResource, Symbol.hasInstance, {
+    configurable: true,
+    value() {
+      hasInstanceCalls += 1
+      return true
+    },
+  })
+  try {
+    const id2 = allocId()
+    const res2 = new DisposableResource(id2, 7)
+    res2[Symbol.dispose]()
+    t.is(res2[Symbol.dispose](), undefined)
+    t.throws(() => res2.read(), disposedMsg('DisposableResource'))
+    t.throws(() => readDisposableRef(res2), disposedMsg('DisposableResource'))
+    t.throws(() => readDisposableRef(fake as never))
+    t.throws(() => readDisposableRef({} as never))
+    t.throws(() =>
+      DisposableResource.prototype[Symbol.dispose].call({} as never),
+    )
+    t.is(hasInstanceCalls, 0)
+  } finally {
+    if (prevDesc) {
+      Object.defineProperty(DisposableResource, Symbol.hasInstance, prevDesc)
+    } else {
+      delete (DisposableResource as unknown as Record<symbol, unknown>)[
+        Symbol.hasInstance
+      ]
+    }
+  }
 })
 
 test('use-after-dispose throws across methods, getters, setters, fields, This, &T, &mut T, ClassInstance, Reference', (t) => {
@@ -344,16 +425,42 @@ test.skipIf(isThreadlessWasi)(
     openDisposableAsyncGate(gateId)
     const res = new DisposableResource(id, 100, 16)
 
-    const pending = res.readAsyncGated(gateId)
-    await waitDisposableAsyncGateEntered(gateId)
+    let pending: Promise<number> | undefined
+    try {
+      pending = res.readAsyncGated(gateId)
+      let entered = false
+      const settledEarly = pending.then(
+        (val) => {
+          if (!entered) {
+            throw new Error(
+              `readAsyncGated resolved early with ${val} before entering gate`,
+            )
+          }
+        },
+        (err) => {
+          if (!entered) {
+            throw err
+          }
+        },
+      )
+      await Promise.race([
+        waitDisposableAsyncGateEntered(gateId).then(() => {
+          entered = true
+        }),
+        settledEarly,
+      ])
 
-    res[Symbol.dispose]()
-    t.is(getDisposableDropCount(id), 0)
-    t.throws(() => res.read(), disposedMsg('DisposableResource'))
+      res[Symbol.dispose]()
+      t.is(getDisposableDropCount(id), 0)
+      t.throws(() => res.read(), disposedMsg('DisposableResource'))
 
-    releaseDisposableAsyncGate(gateId)
-    t.is(await pending, 116)
-    t.is(getDisposableDropCount(id), 1)
+      releaseDisposableAsyncGate(gateId)
+      t.is(await pending, 116)
+      t.is(getDisposableDropCount(id), 1)
+    } finally {
+      releaseDisposableAsyncGate(gateId)
+      await pending?.catch(() => {})
+    }
   },
 )
 
@@ -365,16 +472,42 @@ test.skipIf(isThreadlessWasi)(
     openBorrowGate(gateId)
     const res = new DisposableResource(id, 200, 24)
 
-    const pending = res.readInAsyncTask(gateId)
-    await waitForBorrowGateWaiters(gateId, 1)
+    let pending: Promise<number> | undefined
+    try {
+      pending = res.readInAsyncTask(gateId)
+      let entered = false
+      const settledEarly = pending.then(
+        (val) => {
+          if (!entered) {
+            throw new Error(
+              `readInAsyncTask resolved early with ${val} before entering gate`,
+            )
+          }
+        },
+        (err) => {
+          if (!entered) {
+            throw err
+          }
+        },
+      )
+      await Promise.race([
+        waitForBorrowGateWaiters(gateId, 1).then(() => {
+          entered = true
+        }),
+        settledEarly,
+      ])
 
-    res[Symbol.dispose]()
-    t.is(getDisposableDropCount(id), 0)
-    t.throws(() => res.read(), disposedMsg('DisposableResource'))
+      res[Symbol.dispose]()
+      t.is(getDisposableDropCount(id), 0)
+      t.throws(() => res.read(), disposedMsg('DisposableResource'))
 
-    closeBorrowGate(gateId)
-    t.is(await pending, 224)
-    t.is(getDisposableDropCount(id), 1)
+      closeBorrowGate(gateId)
+      t.is(await pending, 224)
+      t.is(getDisposableDropCount(id), 1)
+    } finally {
+      closeBorrowGate(gateId)
+      await pending?.catch(() => {})
+    }
   },
 )
 
@@ -387,6 +520,11 @@ test('Reference, WeakReference, and SharedReference coordination', (t) => {
   t.true(weak.isAlive())
   t.is(weak.tryGetValue(), 71)
   t.true(weak.tryUpgrade())
+  if (!process.env.SKIP_UNWIND_TEST && !isWasi && !isThreadlessWasi) {
+    // WeakReference::get / get_mut panic on #[napi(disposable)] classes.
+    t.true(weak.getPanics())
+    t.true(weak.getMutPanics())
+  }
 
   r1[Symbol.dispose]()
   t.is(getDisposableDropCount(id1), 0)
@@ -397,6 +535,10 @@ test('Reference, WeakReference, and SharedReference coordination', (t) => {
   t.is(weak.tryGetValue(), null)
   t.false(weak.tryUpgrade())
   t.throws(() => weak.tryToJs())
+  if (!process.env.SKIP_UNWIND_TEST && !isWasi && !isThreadlessWasi) {
+    t.true(weak.getPanics())
+    t.true(weak.getMutPanics())
+  }
 
   // Existing Reference stays readable and cloneable until the last Reference drops.
   t.is(holder.read(), 71)
@@ -515,6 +657,125 @@ test('custom_finalize runs once, propagates error on dispose, and never clobbers
   )
   t.is(getDisposableFinalizeCount(id5), 1)
   t.is(getDisposableDropCount(id5), 1)
+
+  // Batch deferred finalizers (NativeBorrowScope): first error must be thrown
+  // AFTER all finalizers run so the second finalizer's JS calls do not fail
+  // with Status::PendingException.
+  const scopeFirstId = allocId()
+  const scopeSecondId = allocId()
+  let scopeSecondRan = 0
+  const scopeFirst = new DisposableFinalizeCallback(scopeFirstId, true)
+  const scopeSecond = new DisposableFinalizeCallback(
+    scopeSecondId,
+    false,
+    () => {
+      scopeSecondRan += 1
+    },
+  )
+  t.throws(
+    () =>
+      withTwoDisposableFinalizeCallbacks(scopeFirst, scopeSecond, () => {
+        scopeFirst[Symbol.dispose]()
+        scopeSecond[Symbol.dispose]()
+        t.is(getDisposableFinalizeCount(scopeFirstId), 0)
+        t.is(getDisposableFinalizeCount(scopeSecondId), 0)
+      }),
+    { message: `batch finalize failed for ${scopeFirstId}` },
+  )
+  t.is(scopeSecondRan, 1)
+  t.is(getDisposableFinalizeCount(scopeFirstId), 1)
+  t.is(getDisposableDropCount(scopeFirstId), 1)
+  t.is(getDisposableFinalizeCount(scopeSecondId), 1)
+  t.is(getDisposableDropCount(scopeSecondId), 1)
+
+  // Batch deferred finalizers (NativeBorrowBarrier via into_instance): same invariant.
+  const barrierFirstId = allocId()
+  const barrierSecondId = allocId()
+  let barrierSecondRan = 0
+  t.throws(
+    () =>
+      intoTwoDisposableFinalizeCallbacks(
+        barrierFirstId,
+        barrierSecondId,
+        () => {
+          barrierSecondRan += 1
+        },
+        (firstObj, secondObj) => {
+          ;(firstObj as DisposableFinalizeCallback)[Symbol.dispose]()
+          ;(secondObj as DisposableFinalizeCallback)[Symbol.dispose]()
+          t.is(getDisposableFinalizeCount(barrierFirstId), 0)
+          t.is(getDisposableFinalizeCount(barrierSecondId), 0)
+        },
+      ),
+    { message: `batch finalize failed for ${barrierFirstId}` },
+  )
+  t.is(barrierSecondRan, 1)
+  t.is(getDisposableFinalizeCount(barrierFirstId), 1)
+  t.is(getDisposableDropCount(barrierFirstId), 1)
+  t.is(getDisposableFinalizeCount(barrierSecondId), 1)
+  t.is(getDisposableDropCount(barrierSecondId), 1)
+
+  // Batch deferred finalizers where first finalizer throws a JS exception:
+  // second finalizer's JS callback must still run with a clean env, and the
+  // first JS exception must surface afterwards (both NativeBorrowScope and
+  // NativeBorrowBarrier).
+  const jsScopeFirstId = allocId()
+  const jsScopeSecondId = allocId()
+  let jsScopeSecondRan = 0
+  const jsScopeFirst = new DisposableFinalizeCallback(
+    jsScopeFirstId,
+    false,
+    () => {
+      throw new Error('first js throw')
+    },
+  )
+  const jsScopeSecond = new DisposableFinalizeCallback(
+    jsScopeSecondId,
+    false,
+    () => {
+      jsScopeSecondRan += 1
+    },
+  )
+  t.throws(
+    () =>
+      withTwoDisposableFinalizeCallbacks(jsScopeFirst, jsScopeSecond, () => {
+        jsScopeFirst[Symbol.dispose]()
+        jsScopeSecond[Symbol.dispose]()
+      }),
+    { message: 'first js throw' },
+  )
+  t.is(jsScopeSecondRan, 1)
+  t.is(getDisposableFinalizeCount(jsScopeFirstId), 1)
+  t.is(getDisposableDropCount(jsScopeFirstId), 1)
+  t.is(getDisposableFinalizeCount(jsScopeSecondId), 1)
+  t.is(getDisposableDropCount(jsScopeSecondId), 1)
+
+  const jsBarrierFirstId = allocId()
+  const jsBarrierSecondId = allocId()
+  let jsBarrierSecondRan = 0
+  t.throws(
+    () =>
+      intoTwoDisposableFinalizeCallbacks(
+        jsBarrierFirstId,
+        jsBarrierSecondId,
+        () => {
+          jsBarrierSecondRan += 1
+        },
+        (firstObj, secondObj) => {
+          ;(firstObj as DisposableFinalizeCallback)[Symbol.dispose]()
+          ;(secondObj as DisposableFinalizeCallback)[Symbol.dispose]()
+        },
+        () => {
+          throw new Error('first barrier js throw')
+        },
+      ),
+    { message: 'first barrier js throw' },
+  )
+  t.is(jsBarrierSecondRan, 1)
+  t.is(getDisposableFinalizeCount(jsBarrierFirstId), 1)
+  t.is(getDisposableDropCount(jsBarrierFirstId), 1)
+  t.is(getDisposableFinalizeCount(jsBarrierSecondId), 1)
+  t.is(getDisposableDropCount(jsBarrierSecondId), 1)
 })
 
 test('zero-sized disposable struct drops cleanly across constructor, factory, and return-by-value', (t) => {
