@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+
+import { resolveModuleFilePath } from './resolve-module-file-path.js'
 
 const runtimeDirectory = process.env.WASM_RUNTIME_TEST_PACKAGE
   ? resolve(process.env.WASM_RUNTIME_TEST_PACKAGE)
@@ -124,5 +127,36 @@ test('dist/fs.packages.json and dist/THIRD-PARTY-LICENSE describe bundled dist/f
       packageNames.has(expected),
       `dist/fs.packages.json must include bundled package ${expected}`,
     )
+  }
+})
+
+test('resolveModuleFilePath preserves literal # in directory paths and strips bundler query/fragment suffixes', async () => {
+  const tempRoot = await mkdtemp(join(tmpdir(), 'wasm-runtime-manifest-'))
+  try {
+    // Create both an ancestor-prefix directory (`napi`) and a checkout directory
+    // containing `#` (`napi#3740`) to ensure stripping never stops at a directory.
+    const ancestorDir = join(tempRoot, 'napi')
+    const pkgDir = join(tempRoot, 'napi#3740', 'pkg')
+    const entryFile = join(pkgDir, 'index.js')
+    await mkdir(ancestorDir, { recursive: true })
+    await mkdir(pkgDir, { recursive: true })
+    await writeFile(entryFile, 'export const ok = true\n')
+
+    assert.equal(resolveModuleFilePath(entryFile), entryFile)
+    assert.equal(
+      resolveModuleFilePath(`${entryFile}?commonjs-entry`),
+      entryFile,
+    )
+    assert.equal(resolveModuleFilePath(`${entryFile}?a=1#frag`), entryFile)
+    assert.equal(
+      resolveModuleFilePath(`${entryFile}?${'a'.repeat(300)}`),
+      entryFile,
+    )
+
+    const missingFile = join(pkgDir, 'missing.js')
+    assert.notEqual(resolveModuleFilePath(missingFile), ancestorDir)
+    assert.equal(resolveModuleFilePath(missingFile), missingFile)
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true })
   }
 })

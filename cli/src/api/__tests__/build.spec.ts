@@ -5655,6 +5655,33 @@ posixOnly(
       'binary-only-crate',
     )
 
+    // Add a local offline `napi-derive` path dependency with `type-def` enabled
+    // so `enableTypeDef` is genuinely active for non-`binaryOnly` builds and
+    // suppressing `NAPI_TYPE_DEF_TMP_FOLDER` under `binaryOnly` is load-bearing.
+    const deriveStubDir = join(projectDir, 'napi-derive-stub')
+    await mkdir(join(deriveStubDir, 'src'), { recursive: true })
+    await writeFile(
+      join(deriveStubDir, 'Cargo.toml'),
+      `[package]
+name = "napi-derive"
+version = "3.0.0"
+edition = "2021"
+
+[features]
+default = ["type-def"]
+type-def = []
+`,
+    )
+    await writeFile(join(deriveStubDir, 'src', 'lib.rs'), '')
+    const cargoTomlPath = join(projectDir, 'Cargo.toml')
+    await writeFile(
+      cargoTomlPath,
+      `${await readFile(cargoTomlPath, 'utf8')}
+[dependencies]
+napi-derive = { path = "napi-derive-stub" }
+`,
+    )
+
     const cliRequire = createRequire(import.meta.url)
     const emnapiVersion: string = cliRequire('emnapi/package.json').version
     for (const pkg of ['@emnapi/core', '@emnapi/runtime']) {
@@ -5680,6 +5707,25 @@ posixOnly(
 
     const distDir = join(projectDir, 'dist')
     await mkdir(distDir, { recursive: true })
+
+    const nativeArtifactDir = join(projectDir, 'target', target, 'release')
+    await mkdir(nativeArtifactDir, { recursive: true })
+    await writeFile(
+      join(nativeArtifactDir, 'libbinary_only_crate.so'),
+      'fake native binary',
+    )
+
+    const wasiTarget = 'wasm32-wasip1'
+    const wasiArtifactDir = join(projectDir, 'target', wasiTarget, 'release')
+    await mkdir(wasiArtifactDir, { recursive: true })
+    await writeFile(
+      join(wasiArtifactDir, 'binary_only_crate.wasm'),
+      buildSyntheticWasiWasm({
+        memoryMinPages: 32,
+        stackPointer: 1_048_576,
+      }),
+    )
+
     const preservedFiles = new Map<string, string>([
       ['binding.cjs', '// sentinel root binding.cjs\n'],
       ['binding.d.cts', '// sentinel root binding.d.cts\n'],
@@ -5710,29 +5756,46 @@ posixOnly(
         '// sentinel wasip1-deferred.d.ts\n',
       ],
     ])
-    for (const [name, content] of preservedFiles) {
-      await writeFile(join(distDir, name), content)
-    }
 
-    const nativeArtifactDir = join(projectDir, 'target', target, 'release')
-    await mkdir(nativeArtifactDir, { recursive: true })
-    await writeFile(
-      join(nativeArtifactDir, 'libbinary_only_crate.so'),
-      'fake native binary',
-    )
-
-    const wasiTarget = 'wasm32-wasip1'
-    const wasiArtifactDir = join(projectDir, 'target', wasiTarget, 'release')
-    await mkdir(wasiArtifactDir, { recursive: true })
-    await writeFile(
-      join(wasiArtifactDir, 'binary_only_crate.wasm'),
-      buildSyntheticWasiWasm({
-        memoryMinPages: 32,
-        stackPointer: 1_048_576,
-      }),
-    )
+    const originalTypeDefFolder = process.env.NAPI_TYPE_DEF_TMP_FOLDER
+    const originalEnvSentinel = process.env.NAPI_BINARY_ONLY_ENV_SENTINEL
 
     try {
+      // 0. Baseline non-binaryOnly build proves `enableTypeDef` is active for
+      //    this fixture and passes `NAPI_TYPE_DEF_TMP_FOLDER` to Cargo.
+      await (
+        await shim.run({
+          target,
+          jsBinding: 'binding.cjs',
+          dts: 'binding.d.cts',
+          cannedMetadata: true,
+        })
+      ).task
+      const baselineCalls = (await readRecordedCargoCalls(shim.argsDir))
+        .buildCalls
+      t.is(baselineCalls.length, 1)
+      t.regex(baselineCalls[0].env, /^NAPI_TYPE_DEF_TMP_FOLDER=.+/m)
+
+      for (const [name, content] of preservedFiles) {
+        await writeFile(join(distDir, name), content)
+      }
+
+      // Replace the source native artifact bytes after the baseline build so
+      // step 1 proves `--binary-only` actually publishes the fresh binary.
+      await writeFile(
+        join(nativeArtifactDir, 'libbinary_only_crate.so'),
+        'updated native binary',
+      )
+
+      // Keep both env vars active across `await task` (unlike `shim.run({ env })`,
+      // which restores before `task` spawns Cargo) so we prove the parent env is
+      // live at Cargo spawn time while `NAPI_TYPE_DEF_TMP_FOLDER` is stripped.
+      process.env.NAPI_TYPE_DEF_TMP_FOLDER = join(
+        projectDir,
+        'inherited-type-def',
+      )
+      process.env.NAPI_BINARY_ONLY_ENV_SENTINEL = 'active'
+
       // 1. Native binary-only build
       const nativeOutputs = await (
         await shim.run({
@@ -5740,12 +5803,11 @@ posixOnly(
           binaryOnly: true,
           jsBinding: 'binding.cjs',
           dts: 'binding.d.cts',
-          cannedMetadata: true,
         })
       ).task
       const nativeDest = join(distDir, 'binary-only-crate.linux-x64-gnu.node')
       t.deepEqual(nativeOutputs, [{ kind: 'node', path: nativeDest }])
-      t.is(await readFile(nativeDest, 'utf8'), 'fake native binary')
+      t.is(await readFile(nativeDest, 'utf8'), 'updated native binary')
 
       // 2. WASI binary-only build
       const wasiOutputs = await (
@@ -5754,7 +5816,6 @@ posixOnly(
           binaryOnly: true,
           jsBinding: 'binding.cjs',
           dts: 'binding.d.cts',
-          cannedMetadata: true,
         })
       ).task
       const wasiDest = join(distDir, 'binary-only-crate.wasm32-wasip1.wasm')
@@ -5776,9 +5837,11 @@ posixOnly(
       }
 
       // Cargo must not receive NAPI_TYPE_DEF_TMP_FOLDER under --binary-only
+      // even when the parent environment defines it.
       const { buildCalls } = await readRecordedCargoCalls(shim.argsDir)
-      t.is(buildCalls.length, 2)
-      for (const call of buildCalls) {
+      t.is(buildCalls.length, 3)
+      for (const call of buildCalls.slice(1)) {
+        t.regex(call.env, /^NAPI_BINARY_ONLY_ENV_SENTINEL=active$/m)
         t.notRegex(call.env, /^NAPI_TYPE_DEF_TMP_FOLDER=/m)
       }
 
@@ -5800,7 +5863,6 @@ posixOnly(
           binaryOnly: true,
           jsBinding: 'binding.cjs',
           dts: 'binding.d.cts',
-          cannedMetadata: true,
         })
       ).task
       t.deepEqual(fallbackOutputs, [{ kind: 'wasm', path: wasiDest }])
@@ -5816,7 +5878,25 @@ posixOnly(
           `${name} must remain untouched after --binary-only WASI fallback`,
         )
       }
+      const afterFallbackCalls = (await readRecordedCargoCalls(shim.argsDir))
+        .buildCalls
+      t.is(afterFallbackCalls.length, 4)
+      t.regex(
+        afterFallbackCalls[3].env,
+        /^NAPI_BINARY_ONLY_ENV_SENTINEL=active$/m,
+      )
+      t.notRegex(afterFallbackCalls[3].env, /^NAPI_TYPE_DEF_TMP_FOLDER=/m)
     } finally {
+      if (originalTypeDefFolder === undefined) {
+        delete process.env.NAPI_TYPE_DEF_TMP_FOLDER
+      } else {
+        process.env.NAPI_TYPE_DEF_TMP_FOLDER = originalTypeDefFolder
+      }
+      if (originalEnvSentinel === undefined) {
+        delete process.env.NAPI_BINARY_ONLY_ENV_SENTINEL
+      } else {
+        process.env.NAPI_BINARY_ONLY_ENV_SENTINEL = originalEnvSentinel
+      }
       shim.restoreEnv()
     }
   },

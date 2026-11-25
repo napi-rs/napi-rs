@@ -5,6 +5,8 @@ import { dirname, join } from 'node:path'
 import { defineConfig } from 'rolldown'
 import { replacePlugin as replace } from 'rolldown/plugins'
 
+import { resolveModuleFilePath } from './resolve-module-file-path.js'
+
 // The bundled plugins use private core context fields. Build them only from
 // the exact v2 version the package tests run against, which must also be the
 // v2 version in the peer range. `emnapi-plugins.js` adapts them to the
@@ -182,7 +184,7 @@ function emitBundledPackagesManifestPlugin({
           if (id.startsWith('\0') || id.startsWith('rolldown:')) {
             continue
           }
-          const cleanId = id.replace(/[?#].*$/, '')
+          const cleanId = resolveModuleFilePath(id)
           const found = findPackageRoot(cleanId)
           if (!found) {
             throw new Error(

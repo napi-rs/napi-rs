@@ -20,11 +20,24 @@ addon's `AsyncRuntime` backend (napi's `async-runtime` SPI).
     `NAPI_ASYNC_RUNTIME_DRAIN_LINGER_US`), and `install_exact(options)` (no
     adapter-side env reads).
   - `napi-task-host` (implies `napi-backend`): `BindingHostRegistration`,
-    `NativeCurrentThreadTaskHost`, and the task-host exports
+    `NativeCurrentThreadTaskHost`, and contract version 4's task-host exports
     (`reserveCurrentThreadHostRegistration`, `registerCurrentThreadTaskHost`,
     `unregisterCurrentThreadTaskHost`,
     `getCurrentThreadTaskHostContractVersion`,
-    `isCurrentThreadHostRegistrationActive`).
+    `isCurrentThreadHostRegistrationActive`) — **without** `registerTimerHost`
+    or `unregisterTimerHost`. Standard contract-v4 tooling requires all 7
+    exports: `@napi-rs/cli`'s `napi.wasm.asyncRuntime` build check rejects
+    missing timer exports when generating WASI loaders with `type-def` metadata
+    (and warns or skips the check when `type-def` metadata is absent or
+    `--binary-only` is used, deferring validation to load time),
+    `@napi-rs/async-runtime`'s `installCurrentThreadHosts` (used by Node and
+    browser WASI loaders) throws `BindingMismatchError`, and the deferred
+    workerd loader's `registerWorkerdTimerHost` throws `TypeError` when host
+    timers are available. Addons using standard loaders must pair
+    `napi-task-host` with either `napi-timer-host` (full JS timer relay) or
+    `napi-timer-host-stub` (record-only stub); enable `napi-task-host` alone
+    only for custom/manual task-host wiring that invokes the five task-host
+    exports directly without a timer host.
   - `napi-timer-host` (implies `napi-task-host`): full JS timer relay
     (`registerTimerHost`, `unregisterTimerHost`).
   - `napi-timer-host-stub` (implies `napi-task-host`): record-only
