@@ -312,12 +312,15 @@ const arrayBufferCopyWat = `
 )
 `
 
-const compileArrayBufferCopyModule = (shared) => {
-  const module = wabt.parseWat(
-    'ab-copy.wat',
-    arrayBufferCopyWat.replace('MEMORY_SHARED', shared ? 'shared' : ''),
-    { threads: true },
+const compileArrayBufferCopyModule = (shared, exportMemory = true) => {
+  let source = arrayBufferCopyWat.replace(
+    'MEMORY_SHARED',
+    shared ? 'shared' : '',
   )
+  if (!exportMemory) {
+    source = source.replace('  (export "memory" (memory 0))\n', '')
+  }
+  const module = wabt.parseWat('ab-copy.wat', source, { threads: true })
   try {
     return new WebAssembly.Module(module.toBinary({}).buffer)
   } finally {
@@ -327,6 +330,7 @@ const compileArrayBufferCopyModule = (shared) => {
 
 const abCopyModules = {
   unshared: compileArrayBufferCopyModule(false),
+  unsharedNoExport: compileArrayBufferCopyModule(false, false),
   shared: compileArrayBufferCopyModule(true),
 }
 
@@ -803,5 +807,800 @@ test('emnapi_create_arraybuffer_copy fallback calls options.getMemory strictly o
         'hello-ab-copy',
       )
     }
+
+    // 4. Frozen options object (`Object.freeze({ overwriteImports, beforeInit, getMemory })`):
+    //    must still install the compatibility shim, capture instance/memory,
+    //    invoke `getMemory` strictly once, and preserve `this` binding.
+    {
+      const context = createTestContext(runtime, t)
+      const memory = new WebAssembly.Memory({ initial: 1, maximum: 4 })
+      const decoyMemory = new WebAssembly.Memory({ initial: 1, maximum: 1 })
+      let getMemoryCalls = 0
+      let beforeInitCalls = 0
+      let overwriteReceiver
+      const frozenOptions = Object.freeze({
+        context,
+        asyncWorkPoolSize: 0,
+        getMemory(exports) {
+          getMemoryCalls += 1
+          return getMemoryCalls === 1 ? exports.memory : decoyMemory
+        },
+        beforeInit() {
+          beforeInitCalls += 1
+        },
+        overwriteImports(importObject) {
+          overwriteReceiver = this
+          return Object.freeze({
+            ...importObject,
+            env: Object.freeze({
+              ...importObject.env,
+              ...importObject.napi,
+              ...importObject.emnapi,
+              memory,
+            }),
+          })
+        },
+      })
+      const { napiModule } = runtime.instantiateNapiModuleSync(
+        abCopyModules.unshared,
+        frozenOptions,
+      )
+      assert.equal(overwriteReceiver, frozenOptions)
+      assert.equal(getMemoryCalls, 1)
+      assert.equal(beforeInitCalls, 1)
+      assert.ok(napiModule.exports.copied instanceof ArrayBuffer)
+      assert.equal(
+        new TextDecoder().decode(new Uint8Array(napiModule.exports.copied)),
+        'hello-ab-copy',
+      )
+    }
+
+    // 5. Options object frozen mid-instantiation from a getter (`get getTable()`)
+    //    plus a one-shot getter for `getMemory` (must not run on descriptor
+    //    inspection or run twice through outer Proxies):
+    {
+      const context = createTestContext(runtime, t)
+      const memory = new WebAssembly.Memory({ initial: 1, maximum: 4 })
+      let getMemoryGetterReads = 0
+      let getMemoryCalls = 0
+      let beforeInitCalls = 0
+      const dynamicOptions = {
+        context,
+        asyncWorkPoolSize: 0,
+        get getTable() {
+          Object.freeze(this)
+          return undefined
+        },
+        get getMemory() {
+          getMemoryGetterReads += 1
+          if (getMemoryGetterReads > 1) {
+            throw new Error('getMemory getter read more than once')
+          }
+          return (exports) => {
+            getMemoryCalls += 1
+            return exports.memory
+          }
+        },
+        beforeInit() {
+          beforeInitCalls += 1
+        },
+        overwriteImports(importObject) {
+          return {
+            ...importObject,
+            env: {
+              ...importObject.env,
+              ...importObject.napi,
+              ...importObject.emnapi,
+              memory,
+            },
+          }
+        },
+      }
+      const { napiModule } = runtime.instantiateNapiModuleSync(
+        abCopyModules.unshared,
+        dynamicOptions,
+      )
+      assert.equal(Object.isFrozen(dynamicOptions), true)
+      assert.equal(getMemoryGetterReads, 1)
+      assert.equal(getMemoryCalls, 1)
+      assert.equal(beforeInitCalls, 1)
+      assert.equal(
+        new TextDecoder().decode(new Uint8Array(napiModule.exports.copied)),
+        'hello-ab-copy',
+      )
+    }
+
+    // 6. Inherited prototype `#privateField` `memory` getter on `env` (sync +
+    //    async) must keep the original `env` instance as receiver when cloned
+    //    for the fallback shim.
+    for (const asyncMode of [false, true]) {
+      const context = createTestContext(runtime, t)
+      const memory = new WebAssembly.Memory({ initial: 1, maximum: 4 })
+      let protoGetterReads = 0
+      class ProtoPrivateEnv {
+        #mem
+        constructor(mem, funcs) {
+          this.#mem = mem
+          Object.assign(this, funcs)
+        }
+        get memory() {
+          protoGetterReads += 1
+          return this.#mem
+        }
+      }
+      const options = {
+        context,
+        asyncWorkPoolSize: 0,
+        overwriteImports(importObject) {
+          const protoEnv = Object.freeze(
+            new ProtoPrivateEnv(memory, {
+              napi_create_string_utf8:
+                importObject.napi.napi_create_string_utf8,
+              napi_set_named_property:
+                importObject.napi.napi_set_named_property,
+              napi_get_and_clear_last_exception:
+                importObject.napi.napi_get_and_clear_last_exception,
+              napi_create_arraybuffer:
+                importObject.napi.napi_create_arraybuffer,
+              emnapi_sync_memory: importObject.emnapi.emnapi_sync_memory,
+            }),
+          )
+          return Object.freeze({
+            ...importObject,
+            env: protoEnv,
+          })
+        },
+      }
+      const { napiModule } = asyncMode
+        ? await runtime.instantiateNapiModule(
+            abCopyModules.unsharedNoExport,
+            options,
+          )
+        : runtime.instantiateNapiModuleSync(
+            abCopyModules.unsharedNoExport,
+            options,
+          )
+      assert.equal(protoGetterReads, 1)
+      assert.equal(
+        new TextDecoder().decode(new Uint8Array(napiModule.exports.copied)),
+        'hello-ab-copy',
+      )
+    }
+
+    // 7. Async instantiation with imported, non-exported memory and a stateful
+    //    `env.memory` getter that switches from memoryA to memoryB on a 2nd read:
+    //    must read `env.memory` strictly once so Wasm, `@emnapi/core`, and the
+    //    fallback shim all share memoryA without trapping.
+    for (const omitFallbackFromEnv of [false, true]) {
+      const context = createTestContext(runtime, t)
+      const memoryA = new WebAssembly.Memory({ initial: 1, maximum: 4 })
+      const memoryB = new WebAssembly.Memory({ initial: 1, maximum: 4 })
+      let memoryReads = 0
+      const { napiModule } = await runtime.instantiateNapiModule(
+        abCopyModules.unsharedNoExport,
+        {
+          context,
+          asyncWorkPoolSize: 0,
+          overwriteImports(importObject) {
+            const env = omitFallbackFromEnv
+              ? {
+                  napi_create_string_utf8:
+                    importObject.napi.napi_create_string_utf8,
+                  napi_set_named_property:
+                    importObject.napi.napi_set_named_property,
+                  napi_get_and_clear_last_exception:
+                    importObject.napi.napi_get_and_clear_last_exception,
+                  napi_create_arraybuffer:
+                    importObject.napi.napi_create_arraybuffer,
+                  emnapi_sync_memory: importObject.emnapi.emnapi_sync_memory,
+                }
+              : {
+                  ...importObject.env,
+                  ...importObject.napi,
+                  ...importObject.emnapi,
+                }
+            Object.defineProperty(env, 'memory', {
+              get() {
+                memoryReads += 1
+                return memoryReads === 1 ? memoryA : memoryB
+              },
+              enumerable: true,
+              configurable: false,
+            })
+            return {
+              ...importObject,
+              env,
+            }
+          },
+        },
+      )
+      assert.equal(memoryReads, 1)
+      assert.equal(
+        new TextDecoder().decode(new Uint8Array(napiModule.exports.copied)),
+        'hello-ab-copy',
+      )
+    }
+
+    // 8. `overwriteImports(importObject)` calling `Object.freeze(importObject)`
+    //    or `Object.defineProperty(importObject, 'extra', { configurable: false, value: {} })`
+    //    directly on the object passed into the hook must work without Proxy
+    //    invariant TypeErrors.
+    {
+      const context = createTestContext(runtime, t)
+      const memory = new WebAssembly.Memory({ initial: 1, maximum: 4 })
+      const { napiModule } = runtime.instantiateNapiModuleSync(
+        abCopyModules.unshared,
+        {
+          context,
+          asyncWorkPoolSize: 0,
+          overwriteImports(importObject) {
+            importObject.env = {
+              ...importObject.env,
+              ...importObject.napi,
+              ...importObject.emnapi,
+              memory,
+            }
+            return Object.freeze(importObject)
+          },
+        },
+      )
+      assert.equal(
+        new TextDecoder().decode(new Uint8Array(napiModule.exports.copied)),
+        'hello-ab-copy',
+      )
+    }
+    {
+      const context = createTestContext(runtime, t)
+      const memory = new WebAssembly.Memory({ initial: 1, maximum: 4 })
+      let capturedExtra
+      const { napiModule } = runtime.instantiateNapiModuleSync(
+        abCopyModules.unshared,
+        {
+          context,
+          asyncWorkPoolSize: 0,
+          overwriteImports(importObject) {
+            importObject.env = {
+              ...importObject.env,
+              ...importObject.napi,
+              ...importObject.emnapi,
+              memory,
+            }
+            Object.defineProperty(importObject, 'extra', {
+              configurable: false,
+              enumerable: true,
+              value: { tag: 'non-configurable' },
+            })
+            capturedExtra = importObject.extra
+            return importObject
+          },
+        },
+      )
+      assert.deepEqual(capturedExtra, { tag: 'non-configurable' })
+      assert.equal(
+        new TextDecoder().decode(new Uint8Array(napiModule.exports.copied)),
+        'hello-ab-copy',
+      )
+    }
+
+    // 9. Proxy-backed `env` returned from `overwriteImports` that lazily
+    //    supplies required Wasm host imports through its `get` trap:
+    //    (a) when our fallback shim is installed (either omitted from `env`,
+    //        spread from `importObject.emnapi`, or wrapped in a caller
+    //        delegating tracer returned inside an `env`-only outer Proxy), and
+    //    (b) when the caller supplies its own custom `emnapi_create_arraybuffer_copy`.
+    for (const mode of [
+      'fallback-omitted',
+      'fallback-spread',
+      'delegating-wrapper',
+      'custom-copy',
+    ]) {
+      const context = createTestContext(runtime, t)
+      const memory = new WebAssembly.Memory({ initial: 1, maximum: 4 })
+      let lazyLookupCount = 0
+      let customCopyCalls = 0
+      let delegatingCalls = 0
+      let customInstance
+      const { napiModule } = await runtime.instantiateNapiModule(
+        abCopyModules.unsharedNoExport,
+        {
+          context,
+          asyncWorkPoolSize: 0,
+          beforeInit({ instance }) {
+            customInstance = instance
+          },
+          overwriteImports(importObject) {
+            const backing = {
+              memory,
+              napi_set_named_property:
+                importObject.napi.napi_set_named_property,
+              napi_get_and_clear_last_exception:
+                importObject.napi.napi_get_and_clear_last_exception,
+              napi_create_arraybuffer:
+                importObject.napi.napi_create_arraybuffer,
+              emnapi_sync_memory: importObject.emnapi.emnapi_sync_memory,
+            }
+            if (mode === 'fallback-spread') {
+              backing.emnapi_create_arraybuffer_copy =
+                importObject.emnapi.emnapi_create_arraybuffer_copy
+            } else if (mode === 'delegating-wrapper') {
+              const origCopy =
+                importObject.emnapi.emnapi_create_arraybuffer_copy
+              backing.emnapi_create_arraybuffer_copy = (...args) => {
+                delegatingCalls += 1
+                return origCopy(...args)
+              }
+            } else if (mode === 'custom-copy') {
+              backing.emnapi_create_arraybuffer_copy = (
+                env,
+                data,
+                len,
+                result,
+              ) => {
+                customCopyCalls += 1
+                data >>>= 0
+                len >>>= 0
+                result >>>= 0
+                if (!result) {
+                  return importObject.napi.napi_create_arraybuffer(env, 0, 0, 0)
+                }
+                if (len === 0) {
+                  return importObject.napi.napi_create_arraybuffer(
+                    env,
+                    0,
+                    0,
+                    result,
+                  )
+                }
+                if (!data || data + len > memory.buffer.byteLength) {
+                  return 1
+                }
+                const outPtr = customInstance.exports.malloc(4) >>> 0
+                try {
+                  const status = importObject.napi.napi_create_arraybuffer(
+                    env,
+                    len,
+                    outPtr,
+                    result,
+                  )
+                  if (status !== 0) return status
+                  const dstPtr = new DataView(memory.buffer).getUint32(
+                    outPtr,
+                    true,
+                  )
+                  new Uint8Array(memory.buffer).copyWithin(
+                    dstPtr,
+                    data,
+                    data + len,
+                  )
+                  return importObject.emnapi.emnapi_sync_memory(
+                    env,
+                    0,
+                    result,
+                    0,
+                    len,
+                  )
+                } finally {
+                  customInstance.exports.free(outPtr)
+                }
+              }
+            }
+            // Supply `napi_create_string_utf8` ONLY via the Proxy `get` trap
+            // (absent from own properties on `backing`) so any clone that drops
+            // Proxy traps throws `WebAssembly.LinkError`. For `delegating-wrapper`,
+            // also supply `memory` lazily via `get` (absent from `backing` so
+            // `Reflect.has(proxyEnv, 'memory')` is `false` until read).
+            if (mode === 'delegating-wrapper') {
+              delete backing.memory
+            }
+            let lazyMemory
+            const proxyEnv = new Proxy(backing, {
+              get(target, prop, receiver) {
+                if (prop === 'napi_create_string_utf8') {
+                  lazyLookupCount += 1
+                  return importObject.napi.napi_create_string_utf8
+                }
+                if (mode === 'delegating-wrapper' && prop === 'memory') {
+                  lazyMemory ??= memory
+                  return lazyMemory
+                }
+                return Reflect.get(target, prop, receiver)
+              },
+            })
+            if (mode === 'delegating-wrapper') {
+              // Outer env-only Proxy that rejects reads of unused namespaces
+              // (such as `emnapi`), ensuring post-hook logic only inspects `env`.
+              return new Proxy(
+                { env: proxyEnv },
+                {
+                  get(target, prop, receiver) {
+                    if (prop !== 'env') {
+                      throw new Error(
+                        `Unexpected namespace read: ${String(prop)}`,
+                      )
+                    }
+                    return Reflect.get(target, prop, receiver)
+                  },
+                },
+              )
+            }
+            return {
+              ...importObject,
+              env: proxyEnv,
+            }
+          },
+        },
+      )
+      assert.ok(
+        lazyLookupCount >= 1,
+        `${mode}: Proxy get trap must supply napi_create_string_utf8`,
+      )
+      if (mode === 'delegating-wrapper') {
+        assert.ok(delegatingCalls >= 1)
+      }
+      if (mode === 'custom-copy') {
+        assert.ok(customCopyCalls >= 1)
+      }
+      assert.equal(
+        new TextDecoder().decode(new Uint8Array(napiModule.exports.copied)),
+        'hello-ab-copy',
+      )
+    }
   }
+})
+
+test('prepareInstantiateOptions preserves lazy descriptors and read-only emnapi slots', async () => {
+  const { prepareInstantiateOptions } = await import(
+    pathToFileURL(join(runtimeDirectory, 'dist/emnapi-compat.js')).href
+  )
+
+  // Enumerating keys of a frozen options object must never invoke a getter.
+  let getterInvoked = 0
+  const frozenWithGetter = Object.freeze({
+    get getMemory() {
+      getterInvoked += 1
+      return () => undefined
+    },
+    overwriteImports(imp) {
+      return imp
+    },
+  })
+  const { options: wrapped } = prepareInstantiateOptions(frozenWithGetter)
+  assert.deepEqual(Object.keys(wrapped).sort(), [
+    'getMemory',
+    'overwriteImports',
+  ])
+  assert.equal(getterInvoked, 0)
+
+  // Extensible `importObject.emnapi` with a read-only `emnapi_create_arraybuffer_copy: undefined`
+  // must not throw when installing the fallback, and must still honor a caller's `env` override.
+  const customCopy = () => 0
+  const { options: roWrapped } = prepareInstantiateOptions(
+    Object.freeze({
+      overwriteImports(imp) {
+        assert.equal(
+          typeof imp.emnapi.emnapi_create_arraybuffer_copy,
+          'function',
+        )
+        return {
+          ...imp,
+          env: {
+            ...imp.env,
+            emnapi_create_arraybuffer_copy: customCopy,
+          },
+        }
+      },
+    }),
+  )
+  const roEmnapi = { emnapi_sync_memory: () => 0 }
+  Object.defineProperty(roEmnapi, 'emnapi_create_arraybuffer_copy', {
+    value: undefined,
+    writable: false,
+    enumerable: true,
+    configurable: false,
+  })
+  const out = roWrapped.overwriteImports({
+    env: {},
+    napi: { napi_create_arraybuffer: () => 0 },
+    emnapi: roEmnapi,
+  })
+  assert.equal(roEmnapi.emnapi_create_arraybuffer_copy, undefined)
+  assert.equal(out.env.emnapi_create_arraybuffer_copy, customCopy)
+
+  // Reused sealed `importObject.emnapi` across two loads must never leak the
+  // first load's instance-bound shim into the second load.
+  const sharedSealedEmnapi = Object.seal({
+    emnapi_sync_memory: () => 0,
+    emnapi_create_arraybuffer_copy: undefined,
+  })
+  const firstSeen = []
+  const { options: load1 } = prepareInstantiateOptions({
+    overwriteImports(imp) {
+      firstSeen.push(imp.emnapi.emnapi_create_arraybuffer_copy)
+      // Void hook replacing `env` in place: edits must survive on the returned clone.
+      imp.env = { ...imp.env, custom: 1 }
+    },
+  })
+  const out1 = load1.overwriteImports({
+    env: {},
+    napi: { napi_create_arraybuffer: () => 0 },
+    emnapi: sharedSealedEmnapi,
+  })
+  assert.equal(sharedSealedEmnapi.emnapi_create_arraybuffer_copy, undefined)
+  assert.equal(out1.env.custom, 1)
+  const { options: load2 } = prepareInstantiateOptions({
+    overwriteImports(imp) {
+      firstSeen.push(imp.emnapi.emnapi_create_arraybuffer_copy)
+      return imp
+    },
+  })
+  load2.overwriteImports({
+    env: {},
+    napi: { napi_create_arraybuffer: () => 0 },
+    emnapi: sharedSealedEmnapi,
+  })
+  assert.equal(typeof firstSeen[0], 'function')
+  assert.equal(typeof firstSeen[1], 'function')
+  assert.notEqual(firstSeen[0], firstSeen[1])
+
+  // Inherited read-only `emnapi_create_arraybuffer_copy` on prototype must not throw.
+  const protoWithReadonlySlot = {}
+  Object.defineProperty(
+    protoWithReadonlySlot,
+    'emnapi_create_arraybuffer_copy',
+    {
+      value: undefined,
+      writable: false,
+      enumerable: true,
+      configurable: false,
+    },
+  )
+  const inheritedEmnapi = Object.create(protoWithReadonlySlot)
+  inheritedEmnapi.emnapi_sync_memory = () => 0
+  const outInherited = prepareInstantiateOptions({}).options.overwriteImports({
+    env: {},
+    napi: { napi_create_arraybuffer: () => 0 },
+    emnapi: inheritedEmnapi,
+  })
+  assert.equal(
+    typeof outInherited.emnapi.emnapi_create_arraybuffer_copy,
+    'function',
+  )
+  assert.equal(inheritedEmnapi.emnapi_create_arraybuffer_copy, undefined)
+
+  // Non-enumerable own imports (such as `memory`) on a frozen `env` must survive cloning.
+  const fakeMemory = new WebAssembly.Memory({ initial: 1, maximum: 1 })
+  const nonEnumEnv = { emnapi_sync_memory: () => 0 }
+  Object.defineProperty(nonEnumEnv, 'memory', {
+    value: fakeMemory,
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  })
+  Object.defineProperty(nonEnumEnv, 'emnapi_create_arraybuffer_copy', {
+    value: undefined,
+    writable: false,
+    enumerable: true,
+    configurable: false,
+  })
+  Object.freeze(nonEnumEnv)
+  const outNonEnum = prepareInstantiateOptions({
+    overwriteImports(imp) {
+      return Object.freeze({ ...imp, env: nonEnumEnv })
+    },
+  }).options.overwriteImports({
+    env: {},
+    napi: { napi_create_arraybuffer: () => 0 },
+    emnapi: { emnapi_sync_memory: () => 0 },
+  })
+  assert.equal(outNonEnum.env.memory, fakeMemory)
+  assert.equal(typeof outNonEnum.env.emnapi_create_arraybuffer_copy, 'function')
+
+  // Accessor-backed imports relying on the original receiver (e.g. private fields)
+  // must keep their receiver when cloned.
+  const ownPrivateEnv = new (class {
+    #mem = fakeMemory
+    emnapi_sync_memory = () => 0
+    get memory() {
+      return this.#mem
+    }
+  })()
+  Object.defineProperty(ownPrivateEnv, 'memory', {
+    get: Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(ownPrivateEnv),
+      'memory',
+    ).get,
+    enumerable: true,
+    configurable: false,
+  })
+  Object.freeze(ownPrivateEnv)
+  const outPrivate = prepareInstantiateOptions({
+    overwriteImports(imp) {
+      return Object.freeze({ ...imp, env: ownPrivateEnv })
+    },
+  }).options.overwriteImports({
+    env: {},
+    napi: { napi_create_arraybuffer: () => 0 },
+    emnapi: { emnapi_sync_memory: () => 0 },
+  })
+  assert.equal(outPrivate.env.memory, fakeMemory)
+  assert.equal(typeof outPrivate.env.emnapi_create_arraybuffer_copy, 'function')
+
+  // Inherited prototype `#privateField` getter must stay out of own-key
+  // enumeration while keeping `target` as receiver and running at most once,
+  // and own symbols + non-enumerable properties must survive intact.
+  const ownSym = Symbol('envTag')
+  let inheritedReads = 0
+  class InheritedPrivateEnv {
+    #mem
+    #tag = 'private-proto-getter'
+    constructor(mem) {
+      this.#mem = mem
+      this.emnapi_sync_memory = () => 0
+      this[ownSym] = 'kept'
+      Object.defineProperty(this, 'hidden', {
+        value: 42,
+        enumerable: false,
+        writable: false,
+        configurable: false,
+      })
+    }
+    get memory() {
+      inheritedReads += 1
+      return this.#mem
+    }
+    get tag() {
+      return this.#tag
+    }
+  }
+  const protoPrivateEnv = Object.freeze(new InheritedPrivateEnv(fakeMemory))
+  const outProtoPrivate = prepareInstantiateOptions({
+    overwriteImports(imp) {
+      Object.defineProperty(imp, 'extra', {
+        configurable: false,
+        value: { ok: true },
+      })
+      return Object.freeze({ ...imp, env: protoPrivateEnv })
+    },
+  }).options.overwriteImports({
+    env: {},
+    napi: { napi_create_arraybuffer: () => 0 },
+    emnapi: { emnapi_sync_memory: () => 0 },
+  })
+  assert.equal(outProtoPrivate.env instanceof InheritedPrivateEnv, true)
+  assert.equal('memory' in outProtoPrivate.env, true)
+  assert.equal(outProtoPrivate.env.memory, fakeMemory)
+  assert.equal(outProtoPrivate.env.memory, fakeMemory)
+  assert.equal(inheritedReads, 1)
+  assert.equal(outProtoPrivate.env.tag, 'private-proto-getter')
+  assert.equal(outProtoPrivate.env[ownSym], 'kept')
+  assert.equal(outProtoPrivate.env.hidden, 42)
+  assert.equal(Object.keys(outProtoPrivate.env).includes('memory'), false)
+  assert.equal(Object.keys(outProtoPrivate.env).includes('tag'), false)
+  assert.equal(Object.keys(outProtoPrivate.env).includes('hidden'), false)
+  assert.equal(
+    Object.getOwnPropertyNames(outProtoPrivate.env).includes('memory'),
+    false,
+  )
+  assert.equal(
+    Object.getOwnPropertyNames(outProtoPrivate.env).includes('tag'),
+    false,
+  )
+  assert.equal(
+    Object.getOwnPropertyNames(outProtoPrivate.env).includes('hidden'),
+    true,
+  )
+  assert.deepEqual(Object.getOwnPropertySymbols(outProtoPrivate.env), [ownSym])
+  assert.equal(Reflect.ownKeys(outProtoPrivate.env).includes('memory'), false)
+  assert.equal(Reflect.ownKeys(outProtoPrivate.env).includes('tag'), false)
+  assert.equal(
+    typeof outProtoPrivate.env.emnapi_create_arraybuffer_copy,
+    'function',
+  )
+  // Pre-hook `importObject` passed to `overwriteImports` must be a real object
+  // supporting `Object.freeze` and non-configurable `defineProperty`.
+  assert.doesNotThrow(() =>
+    prepareInstantiateOptions({
+      overwriteImports(imp) {
+        return Object.freeze(imp)
+      },
+    }).options.overwriteImports({
+      env: {},
+      napi: { napi_create_arraybuffer: () => 0 },
+      emnapi: { emnapi_sync_memory: () => 0 },
+    }),
+  )
+
+  // Caller supplying a custom/delegating `emnapi_create_arraybuffer_copy` on `env`
+  // keeps its exact function while reading `env.memory` at most once (pinned).
+  const customEnvCopy = () => 0
+  let customEnvMemoryReads = 0
+  const customEnv = {
+    emnapi_create_arraybuffer_copy: customEnvCopy,
+    get memory() {
+      customEnvMemoryReads += 1
+      return fakeMemory
+    },
+  }
+  const envOnlyOuterProxy = new Proxy(
+    { env: customEnv },
+    {
+      get(target, prop, receiver) {
+        if (prop !== 'env') {
+          throw new Error(`Unexpected namespace access: ${String(prop)}`)
+        }
+        return Reflect.get(target, prop, receiver)
+      },
+    },
+  )
+  const outCustom = prepareInstantiateOptions({
+    overwriteImports() {
+      return envOnlyOuterProxy
+    },
+  }).options.overwriteImports({
+    env: {},
+    napi: { napi_create_arraybuffer: () => 0 },
+    emnapi: { emnapi_sync_memory: () => 0 },
+  })
+  assert.equal(outCustom.env.emnapi_create_arraybuffer_copy, customEnvCopy)
+  assert.equal(outCustom.env.memory, fakeMemory)
+  assert.equal(outCustom.env.memory, fakeMemory)
+  assert.equal(customEnvMemoryReads, 1)
+
+  // Plugin supplying lazy imports via a Proxy-backed `importObject.emnapi`
+  // must keep Proxy `get` lookups working for BOTH virtual keys AND existing
+  // own placeholder keys (e.g. `{ placeholder_fn: undefined }`) when spread
+  // into `env`, while still letting hooks freeze the cloned table.
+  let lazyEmnapiLookups = 0
+  const lazyHostFn = () => 77
+  const placeholderHostFn = () => 88
+  const proxyEmnapi = new Proxy(
+    { emnapi_sync_memory: () => 0, placeholder_fn: undefined },
+    {
+      get(target, prop, receiver) {
+        if (prop === 'lazy_plugin_import') {
+          lazyEmnapiLookups += 1
+          return lazyHostFn
+        }
+        if (prop === 'placeholder_fn') {
+          return placeholderHostFn
+        }
+        return Reflect.get(target, prop, receiver)
+      },
+    },
+  )
+  let spreadPlaceholder
+  const outProxyEmnapi = prepareInstantiateOptions({
+    overwriteImports(imp) {
+      assert.equal(imp.emnapi.lazy_plugin_import, lazyHostFn)
+      assert.equal(typeof imp.emnapi.emnapi_create_arraybuffer_copy, 'function')
+      spreadPlaceholder = { ...imp.emnapi }.placeholder_fn
+      return Object.freeze(imp)
+    },
+  }).options.overwriteImports({
+    env: {},
+    napi: { napi_create_arraybuffer: () => 0 },
+    emnapi: proxyEmnapi,
+  })
+  assert.equal(spreadPlaceholder, placeholderHostFn)
+  assert.equal(outProxyEmnapi.emnapi.lazy_plugin_import, lazyHostFn)
+  assert.equal(outProxyEmnapi.emnapi.placeholder_fn, placeholderHostFn)
+  assert.ok(lazyEmnapiLookups >= 2)
+
+  // When `env` does not provide `memory` (e.g. Wasm exports its own memory),
+  // cloning `env` for the fallback must not inject a synthetic `memory: undefined`.
+  const noMemoryEnv = Object.freeze({ emnapi_sync_memory: () => 0 })
+  const outNoMemory = prepareInstantiateOptions({
+    overwriteImports(imp) {
+      return Object.freeze({ ...imp, env: noMemoryEnv })
+    },
+  }).options.overwriteImports({
+    env: {},
+    napi: { napi_create_arraybuffer: () => 0 },
+    emnapi: { emnapi_sync_memory: () => 0 },
+  })
+  assert.equal('memory' in outNoMemory.env, false)
+  assert.equal(
+    typeof outNoMemory.env.emnapi_create_arraybuffer_copy,
+    'function',
+  )
 })

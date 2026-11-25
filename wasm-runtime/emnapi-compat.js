@@ -9,14 +9,261 @@
 // `overwriteImports` runs, so loaders that spread `...importObject.emnapi`
 // into `importObject.env` pick it up automatically.
 
-function canOverrideProperty(target, key) {
-  const own = Object.getOwnPropertyDescriptor(target, key)
-  if (own === undefined) {
-    return true
+function getDescriptorInChain(target, key) {
+  let current = target
+  while (current != null) {
+    const desc = Reflect.getOwnPropertyDescriptor(current, key)
+    if (desc !== undefined) {
+      return desc
+    }
+    current = Reflect.getPrototypeOf(current)
   }
-  return !(
-    own.configurable === false &&
-    ('value' in own ? own.writable === false : own.get === undefined)
+  return undefined
+}
+
+function setPreservingOwnKind(target, key, value, overrides, pinned) {
+  const ownDesc = Reflect.getOwnPropertyDescriptor(target, key)
+  if (ownDesc !== undefined) {
+    overrides[key] = {
+      value,
+      enumerable: Boolean(ownDesc.enumerable),
+    }
+  } else {
+    const inheritedDesc = getDescriptorInChain(
+      Reflect.getPrototypeOf(target),
+      key,
+    )
+    pinned[key] = {
+      value,
+      enumerable:
+        inheritedDesc !== undefined ? Boolean(inheritedDesc.enumerable) : false,
+    }
+  }
+}
+
+// Shallowly clones `target` into a real JS object (so callers can freely call
+// `Object.freeze`, `Object.seal`, or `Object.defineProperty(..., { configurable: false })`
+// without tripping Proxy invariants) while keeping both own AND inherited
+// prototype accessors bound to `target` as receiver and preserving own-key
+// enumeration.
+function cloneWithProperties(target, overrides, pinned) {
+  const ownDescriptors = Object.getOwnPropertyDescriptors(target)
+  const seenProps = new Set(Reflect.ownKeys(ownDescriptors))
+
+  for (const ownKey of seenProps) {
+    const desc = ownDescriptors[ownKey]
+    if (desc && ('get' in desc || 'set' in desc)) {
+      ownDescriptors[ownKey] = {
+        get:
+          typeof desc.get === 'function'
+            ? () => Reflect.get(target, ownKey, target)
+            : undefined,
+        set:
+          typeof desc.set === 'function'
+            ? (next) => {
+                Reflect.set(target, ownKey, next, target)
+              }
+            : undefined,
+        enumerable: desc.enumerable,
+        configurable: true,
+      }
+    } else if (desc) {
+      // Forward reads through `Reflect.get(target, ownKey, target)` so a
+      // Proxy-backed table exposing an own placeholder key still supplies its
+      // `get`-trap value (e.g. when spread into `env`), while local writes stay
+      // on the clone without mutating `target`.
+      ownDescriptors[ownKey] = {
+        get: () => Reflect.get(target, ownKey, target),
+        set: desc.writable
+          ? function (next) {
+              Object.defineProperty(this, ownKey, {
+                value: next,
+                writable: true,
+                enumerable: desc.enumerable,
+                configurable: true,
+              })
+            }
+          : undefined,
+        enumerable: desc.enumerable,
+        configurable: true,
+      }
+    }
+  }
+
+  if (overrides != null) {
+    for (const key of Reflect.ownKeys(overrides)) {
+      const entry = overrides[key]
+      ownDescriptors[key] = {
+        value: entry.value,
+        writable: true,
+        enumerable: entry.enumerable !== false,
+        configurable: true,
+      }
+      seenProps.add(key)
+    }
+  }
+
+  const proto = Object.getPrototypeOf(target)
+  const protoDescriptors = Object.create(null)
+  let hasProtoOverrides = false
+
+  if (pinned != null) {
+    for (const key of Reflect.ownKeys(pinned)) {
+      const entry = pinned[key]
+      protoDescriptors[key] = {
+        value: entry.value,
+        writable: true,
+        enumerable: Boolean(entry.enumerable),
+        configurable: true,
+      }
+      seenProps.add(key)
+      hasProtoOverrides = true
+    }
+  }
+
+  if (proto !== null && proto !== Object.prototype) {
+    for (
+      let cur = proto;
+      cur !== null && cur !== Object.prototype;
+      cur = Object.getPrototypeOf(cur)
+    ) {
+      const curDescriptors = Object.getOwnPropertyDescriptors(cur)
+      for (const key of Reflect.ownKeys(curDescriptors)) {
+        if (seenProps.has(key)) {
+          continue
+        }
+        seenProps.add(key)
+        const desc = curDescriptors[key]
+        if (
+          desc &&
+          (typeof desc.get === 'function' || typeof desc.set === 'function')
+        ) {
+          protoDescriptors[key] = {
+            get:
+              typeof desc.get === 'function'
+                ? () => Reflect.get(target, key, target)
+                : undefined,
+            set:
+              typeof desc.set === 'function'
+                ? (next) => {
+                    Reflect.set(target, key, next, target)
+                  }
+                : undefined,
+            enumerable: desc.enumerable,
+            configurable: true,
+          }
+          hasProtoOverrides = true
+        }
+      }
+    }
+  }
+
+  // Inherit from `target` (rather than only `proto`) so read-through Proxy
+  // `get` traps on `target` (e.g. a plugin's Proxy-backed `emnapi` table)
+  // still resolve virtual properties while `clone` remains a real plain JS
+  // object that supports `Object.freeze` and non-configurable definitions.
+  const cloneProto = hasProtoOverrides
+    ? Object.create(target, protoDescriptors)
+    : target
+  return Object.create(cloneProto, ownDescriptors)
+}
+
+// Lightweight shadow-target read-through overlay for post-hook `finalEnv` /
+// `finalImportObject` returned exclusively to `@emnapi/core` and
+// `WebAssembly.instantiate`. Unlike `cloneWithProperties`, this preserves
+// Proxy-backed `env` / `importObject` `get` traps while overriding only the
+// specific fallback/memory slots without mutating `target`.
+function createOverlayProxy(target, overrides, pinned) {
+  const ownOverrides = Object.create(null)
+  if (overrides != null) {
+    for (const key of Reflect.ownKeys(overrides)) {
+      const entry = overrides[key]
+      ownOverrides[key] = {
+        value: entry.value,
+        writable: true,
+        enumerable: entry.enumerable !== false,
+        configurable: true,
+      }
+    }
+  }
+  const pinnedValues = Object.create(null)
+  if (pinned != null) {
+    for (const key of Reflect.ownKeys(pinned)) {
+      pinnedValues[key] = pinned[key].value
+    }
+  }
+
+  return new Proxy(
+    {},
+    {
+      get(_shadow, key) {
+        if (Object.prototype.hasOwnProperty.call(ownOverrides, key)) {
+          return ownOverrides[key].value
+        }
+        if (Object.prototype.hasOwnProperty.call(pinnedValues, key)) {
+          return pinnedValues[key]
+        }
+        return Reflect.get(target, key, target)
+      },
+      has(_shadow, key) {
+        if (
+          Object.prototype.hasOwnProperty.call(ownOverrides, key) ||
+          Object.prototype.hasOwnProperty.call(pinnedValues, key)
+        ) {
+          return true
+        }
+        return Reflect.has(target, key)
+      },
+      ownKeys() {
+        const keys = Reflect.ownKeys(target)
+        const seen = new Set(keys)
+        for (const key of Reflect.ownKeys(ownOverrides)) {
+          if (!seen.has(key)) {
+            seen.add(key)
+            keys.push(key)
+          }
+        }
+        return keys
+      },
+      getOwnPropertyDescriptor(_shadow, key) {
+        if (Object.prototype.hasOwnProperty.call(ownOverrides, key)) {
+          return { ...ownOverrides[key] }
+        }
+        const desc = Reflect.getOwnPropertyDescriptor(target, key)
+        if (desc === undefined) {
+          return undefined
+        }
+        if ('get' in desc || 'set' in desc) {
+          return {
+            get:
+              typeof desc.get === 'function'
+                ? () => Reflect.apply(desc.get, target, [])
+                : undefined,
+            set:
+              typeof desc.set === 'function'
+                ? (next) => Reflect.apply(desc.set, target, [next])
+                : undefined,
+            enumerable: desc.enumerable,
+            configurable: true,
+          }
+        }
+        return { ...desc, configurable: true }
+      },
+      getPrototypeOf() {
+        return Reflect.getPrototypeOf(target)
+      },
+      set(_shadow, key, value) {
+        if (Object.prototype.hasOwnProperty.call(ownOverrides, key)) {
+          ownOverrides[key].value = value
+          return true
+        }
+        if (Object.prototype.hasOwnProperty.call(pinnedValues, key)) {
+          pinnedValues[key] = value
+          return true
+        }
+        return Reflect.set(target, key, value, target)
+      },
+    },
   )
 }
 
@@ -108,39 +355,65 @@ export function prepareInstantiateOptions(options, overridePlugins) {
     function overwriteImports(importObject) {
       let fallbackFn
       let inputImportObject = importObject
-      if (
-        importObject != null &&
-        typeof importObject === 'object' &&
-        importObject.emnapi != null &&
-        typeof importObject.emnapi === 'object' &&
-        typeof importObject.emnapi.emnapi_create_arraybuffer_copy !==
-          'function' &&
-        importObject.napi != null &&
-        typeof importObject.napi === 'object' &&
-        typeof importObject.napi.napi_create_arraybuffer === 'function' &&
-        typeof importObject.emnapi.emnapi_sync_memory === 'function'
-      ) {
-        fallbackFn = createArrayBufferCopyShim(
-          importObject.napi.napi_create_arraybuffer,
-          importObject.emnapi.emnapi_sync_memory,
-          getInstance,
-          getImportedMemory,
-          getResolvedMemory,
-        )
-        if (Object.isExtensible(importObject.emnapi)) {
-          importObject.emnapi.emnapi_create_arraybuffer_copy = fallbackFn
-        } else {
-          inputImportObject = Object.assign(
-            Object.create(Object.getPrototypeOf(importObject)),
-            importObject,
-            {
-              emnapi: Object.assign(
-                Object.create(Object.getPrototypeOf(importObject.emnapi)),
-                importObject.emnapi,
-                { emnapi_create_arraybuffer_copy: fallbackFn },
-              ),
-            },
+      if (importObject != null && typeof importObject === 'object') {
+        const emnapi = Reflect.get(importObject, 'emnapi', importObject)
+        const napi = Reflect.get(importObject, 'napi', importObject)
+        if (
+          emnapi != null &&
+          typeof emnapi === 'object' &&
+          typeof Reflect.get(
+            emnapi,
+            'emnapi_create_arraybuffer_copy',
+            emnapi,
+          ) !== 'function' &&
+          napi != null &&
+          typeof napi === 'object'
+        ) {
+          const napiCreateArrayBuffer = Reflect.get(
+            napi,
+            'napi_create_arraybuffer',
+            napi,
           )
+          const emnapiSyncMemory = Reflect.get(
+            emnapi,
+            'emnapi_sync_memory',
+            emnapi,
+          )
+          if (
+            typeof napiCreateArrayBuffer === 'function' &&
+            typeof emnapiSyncMemory === 'function'
+          ) {
+            fallbackFn = createArrayBufferCopyShim(
+              napiCreateArrayBuffer,
+              emnapiSyncMemory,
+              getInstance,
+              getImportedMemory,
+              getResolvedMemory,
+            )
+            // Always install the instance-bound shim on an instantiation-local
+            // clone so a reused or sealed/inherited-readonly `importObject.emnapi`
+            // table is never mutated across loads or blocked by prototype slots.
+            const nextEmnapi = cloneWithProperties(emnapi, {
+              emnapi_create_arraybuffer_copy: {
+                value: fallbackFn,
+                enumerable: true,
+              },
+            })
+            const importOverrides = Object.create(null)
+            const importPinned = Object.create(null)
+            setPreservingOwnKind(
+              importObject,
+              'emnapi',
+              nextEmnapi,
+              importOverrides,
+              importPinned,
+            )
+            inputImportObject = cloneWithProperties(
+              importObject,
+              importOverrides,
+              importPinned,
+            )
+          }
         }
       }
 
@@ -154,45 +427,106 @@ export function prepareInstantiateOptions(options, overridePlugins) {
           : inputImportObject
 
       let outputImportObject =
-        typeof userOverwriteImports === 'function'
+        typeof userOverwriteImports === 'function' &&
+        inputImportObject === importObject
           ? returned
           : finalImportObject
 
-      if (finalImportObject != null && typeof finalImportObject === 'object') {
-        const env = finalImportObject.env
-        if (env != null && typeof env === 'object') {
-          if (env.memory !== undefined) {
-            importedMemory = env.memory
-          }
-          if (
-            fallbackFn !== undefined &&
-            typeof env.emnapi_create_arraybuffer_copy !== 'function' &&
-            (typeof env.emnapi_sync_memory === 'function' ||
-              typeof env.napi_create_arraybuffer === 'function')
-          ) {
-            // Never mutate a caller-owned or frozen `env` / `importObject` in
-            // place; return a shallow clone with the fallback installed.
-            const nextEnv = Object.assign(
-              Object.create(Object.getPrototypeOf(env)),
-              env,
-              { emnapi_create_arraybuffer_copy: fallbackFn },
+      if (fallbackFn !== undefined) {
+        let finalEnv
+        if (
+          finalImportObject != null &&
+          typeof finalImportObject === 'object'
+        ) {
+          finalEnv = Reflect.get(finalImportObject, 'env', finalImportObject)
+          if (finalEnv != null && typeof finalEnv === 'object') {
+            const existingCopy = Reflect.get(
+              finalEnv,
+              'emnapi_create_arraybuffer_copy',
+              finalEnv,
             )
-            outputImportObject = Object.assign(
-              Object.create(Object.getPrototypeOf(finalImportObject)),
-              finalImportObject,
-              { env: nextEnv },
-            )
+            const needsEnvFallback =
+              typeof existingCopy !== 'function' &&
+              (typeof Reflect.get(finalEnv, 'emnapi_sync_memory', finalEnv) ===
+                'function' ||
+                typeof Reflect.get(
+                  finalEnv,
+                  'napi_create_arraybuffer',
+                  finalEnv,
+                ) === 'function')
+            const envMemory = Reflect.get(finalEnv, 'memory', finalEnv)
+            if (envMemory !== undefined) {
+              importedMemory = envMemory
+            }
+            if (envMemory !== undefined || needsEnvFallback) {
+              // Pin resolved `env.memory` from the single read above so
+              // WebAssembly instantiation, `@emnapi/core`, and our shim
+              // (including any caller wrapper delegating to it) observe the
+              // exact same memory without invoking a getter twice, while
+              // leaving unresolved `undefined` memory placeholders live and
+              // keeping any Proxy `get` traps on `finalEnv` / `finalImportObject`
+              // intact without mutating caller-owned objects in place.
+              const envOverrides = Object.create(null)
+              const envPinned = Object.create(null)
+              if (envMemory !== undefined) {
+                setPreservingOwnKind(
+                  finalEnv,
+                  'memory',
+                  envMemory,
+                  envOverrides,
+                  envPinned,
+                )
+              }
+              if (needsEnvFallback) {
+                envOverrides.emnapi_create_arraybuffer_copy = {
+                  value: fallbackFn,
+                  enumerable: true,
+                }
+              }
+              const nextEnv = createOverlayProxy(
+                finalEnv,
+                envOverrides,
+                envPinned,
+              )
+              const outOverrides = Object.create(null)
+              const outPinned = Object.create(null)
+              setPreservingOwnKind(
+                finalImportObject,
+                'env',
+                nextEnv,
+                outOverrides,
+                outPinned,
+              )
+              outputImportObject = createOverlayProxy(
+                finalImportObject,
+                outOverrides,
+                outPinned,
+              )
+            }
           }
         }
-      }
-      if (
-        importedMemory === undefined &&
-        inputImportObject != null &&
-        typeof inputImportObject === 'object' &&
-        inputImportObject.env != null &&
-        typeof inputImportObject.env === 'object'
-      ) {
-        importedMemory = inputImportObject.env.memory
+        if (
+          importedMemory === undefined &&
+          inputImportObject != null &&
+          typeof inputImportObject === 'object' &&
+          inputImportObject !== finalImportObject
+        ) {
+          const inputEnv = Reflect.get(
+            inputImportObject,
+            'env',
+            inputImportObject,
+          )
+          if (
+            inputEnv != null &&
+            typeof inputEnv === 'object' &&
+            inputEnv !== finalEnv
+          ) {
+            const inputMemory = Reflect.get(inputEnv, 'memory', inputEnv)
+            if (inputMemory !== undefined) {
+              importedMemory = inputMemory
+            }
+          }
+        }
       }
 
       return outputImportObject
@@ -219,53 +553,98 @@ export function prepareInstantiateOptions(options, overridePlugins) {
     return { options: wrappedOptions, captureResult }
   }
 
-  const canOverridePlugins =
-    overridePlugins !== undefined && canOverrideProperty(options, 'plugins')
-  const canOverrideOverwriteImports = canOverrideProperty(
-    options,
-    'overwriteImports',
-  )
-  const canOverrideBeforeInit = canOverrideProperty(options, 'beforeInit')
-  const canOverrideGetMemory = canOverrideProperty(options, 'getMemory')
-
-  if (
-    !canOverridePlugins &&
-    !canOverrideOverwriteImports &&
-    !canOverrideBeforeInit &&
-    !canOverrideGetMemory
-  ) {
-    return { options, captureResult }
+  const getIntercepted = (key) => {
+    if (key === 'plugins' && overridePlugins !== undefined) {
+      return overridePlugins
+    }
+    if (key === 'overwriteImports') {
+      const original = Reflect.get(options, key, options)
+      if (original != null && typeof original !== 'function') {
+        return original
+      }
+      return wrapOverwriteImports(original, options)
+    }
+    if (key === 'beforeInit') {
+      const original = Reflect.get(options, key, options)
+      if (original != null && typeof original !== 'function') {
+        return original
+      }
+      return wrapBeforeInit(original, options)
+    }
+    if (key === 'getMemory') {
+      const original = Reflect.get(options, key, options)
+      if (typeof original !== 'function') {
+        return original
+      }
+      return wrapGetMemory(original, options)
+    }
+    return Reflect.get(options, key, options)
   }
 
-  const wrappedOptions = new Proxy(options, {
-    get(target, key) {
-      if (key === 'plugins' && canOverridePlugins) {
-        return overridePlugins
-      }
-      if (key === 'overwriteImports' && canOverrideOverwriteImports) {
-        const original = Reflect.get(target, key)
-        if (original != null && typeof original !== 'function') {
-          return original
+  // Always use an extensible shadow target so frozen options, non-configurable
+  // hooks, or getters that freeze `this` during instantiation never trip Proxy
+  // invariants, while forwarding `this` binding, private-field getters,
+  // non-enumerable properties, and prototype lookups to `options`.
+  const wrappedOptions = new Proxy(
+    {},
+    {
+      get(_target, key) {
+        return getIntercepted(key)
+      },
+      has(_target, key) {
+        return Reflect.has(options, key)
+      },
+      ownKeys() {
+        return Reflect.ownKeys(options)
+      },
+      getOwnPropertyDescriptor(_target, key) {
+        const desc = Reflect.getOwnPropertyDescriptor(options, key)
+        if (desc === undefined) {
+          return undefined
         }
-        return wrapOverwriteImports(original, target)
-      }
-      if (key === 'beforeInit' && canOverrideBeforeInit) {
-        const original = Reflect.get(target, key)
-        if (original != null && typeof original !== 'function') {
-          return original
+        if (key === 'plugins' && overridePlugins !== undefined) {
+          return {
+            value: overridePlugins,
+            writable: true,
+            enumerable: desc.enumerable,
+            configurable: true,
+          }
         }
-        return wrapBeforeInit(original, target)
-      }
-      if (key === 'getMemory' && canOverrideGetMemory) {
-        const original = Reflect.get(target, key)
-        if (typeof original !== 'function') {
-          return original
+        if (
+          key === 'overwriteImports' ||
+          key === 'beforeInit' ||
+          key === 'getMemory'
+        ) {
+          if ('get' in desc || 'set' in desc) {
+            return {
+              get() {
+                return getIntercepted(key)
+              },
+              set:
+                typeof desc.set === 'function'
+                  ? (value) => Reflect.set(options, key, value, options)
+                  : undefined,
+              enumerable: desc.enumerable,
+              configurable: true,
+            }
+          }
+          return {
+            value: getIntercepted(key),
+            writable: true,
+            enumerable: desc.enumerable,
+            configurable: true,
+          }
         }
-        return wrapGetMemory(original, target)
-      }
-      return Reflect.get(target, key)
+        return { ...desc, configurable: true }
+      },
+      getPrototypeOf() {
+        return Reflect.getPrototypeOf(options)
+      },
+      set(_target, key, value) {
+        return Reflect.set(options, key, value, options)
+      },
     },
-  })
+  )
 
   return { options: wrappedOptions, captureResult }
 }
