@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.0.1](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v8.0.0...napi-derive-backend-v8.0.1) - 2026-11-26
+
+### Other
+
+- *(backend)* compute class type tags at compile time ([#3746](https://github.com/napi-rs/napi-rs/pull/3746))
+
 ## [8.0.0](https://github.com/napi-rs/napi-rs/compare/napi-derive-backend-v7.0.1...napi-derive-backend-v8.0.0) - 2026-11-23
 
 ### Fixed
