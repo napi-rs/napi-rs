@@ -103,11 +103,11 @@ fn consumed_api_signatures_are_stable() {
   // Generic spawn facade, instantiated the way rolldown_utils/futures.rs
   // (spawn/try_spawn/spawn_detached/spawn_blocking/block_on) consumes it.
   fn spawn_facade() {
-    let _: fn(std::future::Ready<u8>) -> JoinHandle<u8> = spawn::<std::future::Ready<u8>, u8>;
+    let _: fn(std::future::Ready<u8>) -> JoinHandle<u8> = spawn::<std::future::Ready<u8>>;
     let _: fn(
       std::future::Ready<u8>,
     ) -> Result<JoinHandle<u8>, (RuntimeConfigError, std::future::Ready<u8>)> =
-      try_spawn::<std::future::Ready<u8>, u8>;
+      try_spawn::<std::future::Ready<u8>>;
     let _: fn(std::future::Ready<()>) -> Result<(), std::future::Ready<()>> =
       try_spawn_detached::<std::future::Ready<()>>;
     let _: fn(std::future::Ready<()>) = spawn_detached::<std::future::Ready<()>>;

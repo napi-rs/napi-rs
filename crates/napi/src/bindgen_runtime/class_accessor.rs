@@ -63,11 +63,17 @@ where
 {
   let mut wrapped_val: *mut c_void = ptr::null_mut();
 
-  check_status!(
-    unsafe { sys::napi_unwrap(env, this, &mut wrapped_val) },
-    "Failed to unwrap exclusive reference of `{}` type from napi value",
-    T::type_name(),
-  )?;
+  let status = unsafe { sys::napi_unwrap(env, this, &mut wrapped_val) };
+  if status != sys::Status::napi_ok {
+    return Err(unsafe {
+      super::map_class_unwrap_error::<T>(env, this, status, || {
+        format!(
+          "Failed to unwrap exclusive reference of `{}` type from napi value",
+          T::type_name()
+        )
+      })
+    });
+  }
 
   // Reject a spoofed field-accessor receiver before the blind cast. The tag
   // check is compiled only on napi8 NATIVE targets (the `T: MaybeTypeTag` bound

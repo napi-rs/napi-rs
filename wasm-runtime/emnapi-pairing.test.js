@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
 import { once } from 'node:events'
 import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
@@ -6,7 +7,10 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import { Worker } from 'node:worker_threads'
+
+const execFileAsync = promisify(execFile)
 
 // CI points this at the installed tarball, so the fixtures run the packed
 // runtime files instead of the source tree.
@@ -104,7 +108,17 @@ const writeRuntimePackage = async (nodeModules) => {
       JSON.stringify({
         name: '@napi-rs/wasm-runtime',
         version: '0.0.0',
-        exports: { '.': { require: './runtime.cjs' } },
+        type: 'module',
+        exports: {
+          '.': {
+            node: {
+              import: './runtime-node.js',
+              require: './runtime.cjs',
+            },
+            import: './runtime.js',
+            require: './runtime.cjs',
+          },
+        },
       }),
     ),
     cp(
@@ -112,8 +126,40 @@ const writeRuntimePackage = async (nodeModules) => {
       join(runtimePackage, 'runtime.cjs'),
     ),
     cp(
+      join(runtimeDirectory, 'runtime.js'),
+      join(runtimePackage, 'runtime.js'),
+    ),
+    cp(
+      join(runtimeDirectory, 'runtime-node.js'),
+      join(runtimePackage, 'runtime-node.js'),
+    ),
+    cp(
+      join(runtimeDirectory, 'dist', 'emnapi-compat.cjs'),
+      join(runtimePackage, 'dist', 'emnapi-compat.cjs'),
+    ),
+    cp(
+      join(runtimeDirectory, 'dist', 'emnapi-compat.js'),
+      join(runtimePackage, 'dist', 'emnapi-compat.js'),
+    ),
+    cp(
+      join(runtimeDirectory, 'dist', 'emnapi-pairing.cjs'),
+      join(runtimePackage, 'dist', 'emnapi-pairing.cjs'),
+    ),
+    cp(
+      join(runtimeDirectory, 'dist', 'emnapi-pairing.js'),
+      join(runtimePackage, 'dist', 'emnapi-pairing.js'),
+    ),
+    cp(
       join(runtimeDirectory, 'dist', 'emnapi-plugins.cjs'),
       join(runtimePackage, 'dist', 'emnapi-plugins.cjs'),
+    ),
+    cp(
+      join(runtimeDirectory, 'dist', 'emnapi-plugins.js'),
+      join(runtimePackage, 'dist', 'emnapi-plugins.js'),
+    ),
+    writeFile(
+      join(runtimePackage, 'fs-proxy.js'),
+      'export function createFsProxy() {}\nexport function createOnMessage() {}\n',
     ),
     writeFile(
       join(runtimePackage, 'dist', 'fs-proxy.cjs'),
@@ -167,6 +213,26 @@ module.exports = {
 import { parentPort } from 'node:worker_threads'
 const require = createRequire(import.meta.url)
 const runtime = require('@napi-rs/wasm-runtime')
+const handler = new runtime.MessageHandler({ onLoad() {} })
+const context = runtime.getDefaultContext()
+const instantiated = runtime.instantiateNapiModuleSync('wasm', {
+  childThread: true,
+  context,
+  plugins: [runtime.emnapiAsyncWorkPlugin, runtime.emnapiTSFNPlugin],
+})
+parentPort.postMessage({
+  handler: handler.copy,
+  context: context.copy,
+  instantiated: instantiated.copy,
+  plugins: instantiated.options.plugins.map((plugin) => plugin.copy ?? null),
+})
+`,
+  )
+  // A generated worker loading the runtime through dynamic ESM import.
+  await writeFile(
+    join(directory, 'worker-esm.mjs'),
+    `import { parentPort } from 'node:worker_threads'
+const runtime = await import('@napi-rs/wasm-runtime')
 const handler = new runtime.MessageHandler({ onLoad() {} })
 const context = runtime.getDefaultContext()
 const instantiated = runtime.instantiateNapiModuleSync('wasm', {
@@ -300,7 +366,10 @@ test('replacing the plugins keeps every other option', async (t) => {
       return this.#wasi
     }
   }
+  let overwriteImportsReceiver
+  Options.prototype.print = function print() {}
   Options.prototype.overwriteImports = function overwriteImports(imports) {
+    overwriteImportsReceiver = this
     return imports
   }
   const options = new Options()
@@ -311,10 +380,11 @@ test('replacing the plugins keeps every other option', async (t) => {
       [`${BETA} binding`, `${BETA} binding`],
     )
     assert.equal(result.options.context, context)
-    assert.equal(
-      result.options.overwriteImports,
-      Options.prototype.overwriteImports,
-    )
+    assert.equal(result.options.print, Options.prototype.print)
+    overwriteImportsReceiver = undefined
+    const sampleImports = { env: {}, napi: {}, emnapi: {} }
+    assert.equal(result.options.overwriteImports(sampleImports), sampleImports)
+    assert.equal(overwriteImportsReceiver, options)
     assert.equal(result.options.hidden, 'own non-enumerable')
     assert.deepEqual(result.options.wasi, { kind: 'wasi' })
   }
@@ -324,19 +394,21 @@ test('replacing the plugins keeps every other option', async (t) => {
 
 test('a worker of a binding runs on the binding copy', async (t) => {
   const { binding, plain } = await createNpmFixture(t)
-  assert.deepEqual(await runWorker(join(binding, 'worker.mjs')), {
-    handler: `${BETA} binding`,
-    context: `${BETA} binding`,
-    instantiated: `${BETA} binding`,
-    plugins: [`${BETA} binding`, `${BETA} binding`],
-  })
-  // A worker of a package without its own emnapi keeps the runtime's peers.
-  assert.deepEqual(await runWorker(join(plain, 'worker.mjs')), {
-    handler: '1.11.3 root',
-    context: '1.11.3 root',
-    instantiated: '1.11.3 root',
-    plugins: [null, null],
-  })
+  for (const workerFile of ['worker.mjs', 'worker-esm.mjs']) {
+    assert.deepEqual(await runWorker(join(binding, workerFile)), {
+      handler: `${BETA} binding`,
+      context: `${BETA} binding`,
+      instantiated: `${BETA} binding`,
+      plugins: [`${BETA} binding`, `${BETA} binding`],
+    })
+    // A worker of a package without its own emnapi keeps the runtime's peers.
+    assert.deepEqual(await runWorker(join(plain, workerFile)), {
+      handler: '1.11.3 root',
+      context: '1.11.3 root',
+      instantiated: '1.11.3 root',
+      plugins: [null, null],
+    })
+  }
 })
 
 test('a context from the runtime peer copy runs on that copy', async (t) => {
@@ -416,15 +488,17 @@ test('pnpm: the core comes from the binding, not from the runtime store director
   assert.equal(result.options.plugins[0].copy, `${BETA} binding`)
   assert.equal(loader.atLoad.defaultContext.copy, `${BETA} binding`)
   assert.equal(loader.atLoad.handler.copy, `${BETA} binding`)
-  assert.deepEqual(
-    await runWorker(join(root, 'node_modules', 'binding', 'worker.mjs')),
-    {
-      handler: `${BETA} binding`,
-      context: `${BETA} binding`,
-      instantiated: `${BETA} binding`,
-      plugins: [`${BETA} binding`, `${BETA} binding`],
-    },
-  )
+  for (const workerFile of ['worker.mjs', 'worker-esm.mjs']) {
+    assert.deepEqual(
+      await runWorker(join(root, 'node_modules', 'binding', workerFile)),
+      {
+        handler: `${BETA} binding`,
+        context: `${BETA} binding`,
+        instantiated: `${BETA} binding`,
+        plugins: [`${BETA} binding`, `${BETA} binding`],
+      },
+    )
+  }
 })
 
 // npm can resolve this package's two peers to different versions: here the
@@ -516,4 +590,38 @@ test('a context from another emnapi generation is a clear error', async (t) => {
       ),
   )
   await assert.rejects(loader.async({ context: v2Foreign }), TypeError)
+})
+
+test('Node ESM entry imports cleanly under --no-experimental-require-module', async (t) => {
+  const root = await tempRoot(t)
+  await mkdir(join(root, 'node_modules', '@napi-rs'), { recursive: true })
+  await symlink(
+    runtimeDirectory,
+    join(root, 'node_modules', '@napi-rs', 'wasm-runtime'),
+    'dir',
+  )
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [
+      '--no-experimental-require-module',
+      '--input-type=module',
+      '-e',
+      `const rt = await import('@napi-rs/wasm-runtime')
+const ctx = rt.createContext({ autoDestroy: false })
+ctx.destroy()
+process.stdout.write(JSON.stringify({
+  hasInstantiate: typeof rt.instantiateNapiModule === 'function',
+  hasInstantiateSync: typeof rt.instantiateNapiModuleSync === 'function',
+  hasMessageHandler: typeof rt.MessageHandler === 'function',
+  hasWASI: typeof rt.WASI === 'function',
+}))`,
+    ],
+    { cwd: root },
+  )
+  assert.deepEqual(JSON.parse(stdout), {
+    hasInstantiate: true,
+    hasInstantiateSync: true,
+    hasMessageHandler: true,
+    hasWASI: true,
+  })
 })

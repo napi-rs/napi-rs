@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -62,6 +62,26 @@ const createRuntimeFixture = async (generation) => {
     cp(
       join(runtimeDirectory, 'runtime.js'),
       join(fixtureDirectory, 'runtime.js'),
+    ),
+    cp(
+      join(runtimeDirectory, 'runtime-node.js'),
+      join(fixtureDirectory, 'runtime-node.js'),
+    ),
+    cp(
+      join(runtimeDirectory, 'dist', 'emnapi-compat.cjs'),
+      join(fixtureDirectory, 'dist', 'emnapi-compat.cjs'),
+    ),
+    cp(
+      join(runtimeDirectory, 'dist', 'emnapi-compat.js'),
+      join(fixtureDirectory, 'dist', 'emnapi-compat.js'),
+    ),
+    cp(
+      join(runtimeDirectory, 'dist', 'emnapi-pairing.cjs'),
+      join(fixtureDirectory, 'dist', 'emnapi-pairing.cjs'),
+    ),
+    cp(
+      join(runtimeDirectory, 'dist', 'emnapi-pairing.js'),
+      join(fixtureDirectory, 'dist', 'emnapi-pairing.js'),
     ),
     cp(
       join(runtimeDirectory, 'dist', 'emnapi-plugins.cjs'),
@@ -205,5 +225,84 @@ for (const generation of ['v1', 'v2']) {
     )
     assertRuntimeExports(esmRuntime, generation)
     assert.equal(esmRuntime.wasmUtilGeneration, generation)
+
+    const nodeEsmRuntime = await import(
+      pathToFileURL(join(fixtureDirectory, 'runtime-node.js')).href
+    )
+    assertRuntimeExports(nodeEsmRuntime, generation)
+    assert.equal(nodeEsmRuntime.wasmUtilGeneration, generation)
   })
 }
+
+test('bundling a dynamic-import wasi-worker.mjs with rolldown leaves zero bare @napi-rs/* or @emnapi/* imports', async (t) => {
+  const { rolldown } = await import('rolldown')
+  const fixtureDirectory = await mkdtemp(
+    join(tmpdir(), 'napi-rs-wasm-runtime-bundle-'),
+  )
+  t.after(() => rm(fixtureDirectory, { force: true, recursive: true }))
+  await mkdir(join(fixtureDirectory, 'node_modules', '@napi-rs'), {
+    recursive: true,
+  })
+  await symlink(
+    runtimeDirectory,
+    join(fixtureDirectory, 'node_modules', '@napi-rs', 'wasm-runtime'),
+    'dir',
+  )
+  const workerEntry = join(fixtureDirectory, 'wasi-worker.mjs')
+  await writeFile(
+    workerEntry,
+    `import { createRequire } from 'node:module'
+import { parentPort } from 'node:worker_threads'
+const require = createRequire(import.meta.url)
+const {
+  instantiateNapiModuleSync,
+  MessageHandler,
+  getDefaultContext,
+  emnapiAsyncWorkPlugin,
+  emnapiTSFNPlugin,
+} = await import('@napi-rs/wasm-runtime')
+export {
+  instantiateNapiModuleSync,
+  MessageHandler,
+  getDefaultContext,
+  emnapiAsyncWorkPlugin,
+  emnapiTSFNPlugin,
+  parentPort,
+  require,
+}
+`,
+  )
+  const bundle = await rolldown({
+    input: workerEntry,
+    platform: 'node',
+  })
+  try {
+    const { output } = await bundle.generate({
+      format: 'esm',
+      codeSplitting: false,
+    })
+    const chunks = output.filter((chunk) => chunk.type === 'chunk')
+    const code = chunks.map((chunk) => chunk.code).join('\n')
+    assert.ok(code.length > 0)
+    const externalImports = chunks.flatMap((chunk) => [
+      ...chunk.imports,
+      ...chunk.dynamicImports,
+    ])
+    assert.deepEqual(
+      externalImports.filter((id) => /^@(?:napi-rs|emnapi)\//.test(id)),
+      [],
+      `Expected zero external @napi-rs/* or @emnapi/* imports, got: ${externalImports.join(', ')}`,
+    )
+    assert.doesNotMatch(
+      code,
+      /^\s*import\b.*\bfrom\s+['"]@(?:napi-rs|emnapi)\//m,
+    )
+    assert.doesNotMatch(code, /\bimport\s*\(\s*['"]@(?:napi-rs|emnapi)\//)
+    assert.doesNotMatch(
+      code,
+      /(?:^|[^.\w])require\s*\(\s*['"]@(?:napi-rs|emnapi)\//,
+    )
+  } finally {
+    await bundle.close()
+  }
+})

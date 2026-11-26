@@ -6,12 +6,13 @@ export type WasiModuleInput = WebAssembly.Module | PromiseLike<WebAssembly.Modul
 export interface WasiCallerMemoryOptions {
   /**
    * A caller-allocated linear memory for this instance. It must be unshared
-   * and created in this loader's own realm — the WASI and emnapi layers
-   * underneath identify a Memory with a realm-local `instanceof`, so one from
-   * a `node:vm` context or another frame is rejected. It is single-use: once
-   * a validated initialization attempt has begun, the same Memory cannot be
-   * passed again — including after that attempt failed, and after the instance
-   * was disposed.
+   * and created in this loader's own realm — `@tybys/wasm-util`'s
+   * `WASI._setMemory` (and older `@emnapi/core` releases before
+   * 2.0.0-beta.4) identify a Memory with a realm-local `instanceof`, so one
+   * from a `node:vm` context or another frame is rejected. It is single-use:
+   * once a validated initialization attempt has begun, the same Memory cannot
+   * be passed again — including after that attempt failed, and after the
+   * instance was disposed.
    */
   memory: WebAssembly.Memory;
   /** Not available beside `memory`: the loader allocates neither. */

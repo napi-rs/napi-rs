@@ -22,6 +22,12 @@ pub fn expand(attr: TokenStream, input: TokenStream) -> BindgenResult<TokenStrea
         format!("{attr} is only supported on class methods, accessors and fields"),
       ));
     }
+    if let Some(span) = opts.disposable() {
+      return Err(napi_derive_backend::Diagnostic::span_error(
+        *span,
+        "#[napi(disposable)] can only be applied to a class struct",
+      ));
+    }
     let (js_name, js_name_span) = opts.js_name().map_or_else(
       || (js_mod.ident.to_string(), js_mod.ident.span()),
       |(js_name, span)| (js_name.to_owned(), span),

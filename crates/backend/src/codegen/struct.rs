@@ -174,11 +174,15 @@ fn gen_napi_value_map_impl(
       ) -> napi::bindgen_prelude::Result<&'static Self> {
         let mut wrapped_val: *mut std::ffi::c_void = std::ptr::null_mut();
 
-        napi::bindgen_prelude::check_status!(
-          napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut wrapped_val),
-          "Failed to recover `{}` type from napi value",
-          #name_str,
-        )?;
+        let status = napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut wrapped_val);
+        if status != napi::bindgen_prelude::sys::Status::napi_ok {
+          return Err(napi::bindgen_prelude::map_class_unwrap_error::<Self>(
+            env,
+            napi_val,
+            status,
+            || format!("Failed to recover `{}` type from napi value", #name_str),
+          ));
+        }
 
         // Reject a wrong-class / prototype-spoofed `&T` argument before the
         // blind cast. `validate_type_tag` is a no-op on builds without the
@@ -213,11 +217,15 @@ fn gen_napi_value_map_impl(
       ) -> napi::bindgen_prelude::Result<&'static mut Self> {
         let mut wrapped_val: *mut std::ffi::c_void = std::ptr::null_mut();
 
-        napi::bindgen_prelude::check_status!(
-          napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut wrapped_val),
-          "Failed to recover `{}` type from napi value",
-          #name_str,
-        )?;
+        let status = napi::bindgen_prelude::sys::napi_unwrap(env, napi_val, &mut wrapped_val);
+        if status != napi::bindgen_prelude::sys::Status::napi_ok {
+          return Err(napi::bindgen_prelude::map_class_unwrap_error::<Self>(
+            env,
+            napi_val,
+            status,
+            || format!("Failed to recover `{}` type from napi value", #name_str),
+          ));
+        }
 
         // Reject a wrong-class / prototype-spoofed `&mut T` argument before the
         // blind cast. `validate_type_tag` is a no-op on builds without the
@@ -367,6 +375,30 @@ impl NapiStruct {
       quote! {}
     };
 
+    let dispose_fn = if class.disposable {
+      let name = &self.name;
+      let struct_ty = if self.has_lifetime {
+        quote! { #name<'static> }
+      } else {
+        quote! { #name }
+      };
+      let js_name_nul = format!("{}\0", self.js_name);
+      let tracing_debug = gen_tracing_debug(&self.js_name, "[Symbol.dispose]");
+      quote! {
+        extern "C" fn __napi_dispose(
+          env: napi::bindgen_prelude::sys::napi_env,
+          cb: napi::bindgen_prelude::sys::napi_callback_info
+        ) -> napi::bindgen_prelude::sys::napi_value {
+          #tracing_debug
+          unsafe {
+            napi::bindgen_prelude::dispose_class_instance::<#struct_ty>(env, cb, #js_name_nul)
+          }
+        }
+      }
+    } else {
+      quote! {}
+    };
+
     let mut getters_setters = self.gen_default_getters_setters(class);
     getters_setters.sort_by(|a, b| a.0.cmp(&b.0));
     let register = self.gen_register(class);
@@ -381,6 +413,7 @@ impl NapiStruct {
         use super::*;
 
         #ctor
+        #dispose_fn
         #(#getters_setters_token)*
         #register
       }
@@ -494,6 +527,17 @@ impl NapiStruct {
         #object_finalize_impl
       }
     };
+    let pin_disposable_instance = if class.disposable {
+      quote! {
+        napi::bindgen_prelude::pin_disposable_in_active_frame(
+          env.raw(),
+          instance_value,
+          wrapped_value.cast(),
+        )?;
+      }
+    } else {
+      quote! {}
+    };
     quote! {
       #[automatically_derived]
       #to_napi_value_impl {
@@ -502,10 +546,7 @@ impl NapiStruct {
           val: #name
         ) -> napi::Result<napi::bindgen_prelude::sys::napi_value> {
           if let Some(ctor_ref) = napi::__private::get_class_constructor_in_env(env, #js_name_str) {
-            let mut wrapped_value = Box::into_raw(Box::new(val));
-            if wrapped_value as usize == 0x1 {
-              wrapped_value = Box::into_raw(Box::new(0u8)).cast();
-            }
+            let wrapped_value = napi::bindgen_prelude::alloc_class_value(val);
             let instance_value = napi::bindgen_prelude::new_instance::<#name>(env, wrapped_value.cast(), ctor_ref)?;
             #iterator_implementation
             #async_iterator_implementation
@@ -526,11 +567,9 @@ impl NapiStruct {
          {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor_in_env(env.raw(), #js_name_str) {
             unsafe {
-              let mut wrapped_value = Box::into_raw(Box::new(self));
-              if wrapped_value as usize == 0x1 {
-                wrapped_value = Box::into_raw(Box::new(0u8)).cast();
-              }
+              let wrapped_value = napi::bindgen_prelude::alloc_class_value(self);
               let instance_value = napi::bindgen_prelude::new_instance::<#name>(env.raw(), wrapped_value.cast(), ctor_ref)?;
+              #pin_disposable_instance
               Ok(napi::bindgen_prelude::ClassInstance::new(instance_value, env.raw(), wrapped_value))
             }
           } else {
@@ -543,10 +582,7 @@ impl NapiStruct {
         fn into_reference(self, env: napi::Env) -> napi::Result<napi::bindgen_prelude::Reference<Self>> {
           if let Some(ctor_ref) = napi::bindgen_prelude::get_class_constructor_in_env(env.raw(), #js_name_str) {
             unsafe {
-              let mut wrapped_value = Box::into_raw(Box::new(self));
-              if wrapped_value as usize == 0x1 {
-                wrapped_value = Box::into_raw(Box::new(0u8)).cast();
-              }
+              let wrapped_value = napi::bindgen_prelude::alloc_class_value(self);
               let instance_value = napi::bindgen_prelude::new_instance::<#name>(env.raw(), wrapped_value.cast(), ctor_ref)?;
               {
                 let env = env.raw();
@@ -1025,9 +1061,9 @@ impl NapiStruct {
                 napi::bindgen_prelude::class_accessor_unwrap_this::<#struct_name>(env, this)?
               };
               // Held until the end of this call, so the field borrow stays exclusive
-              // across return-value conversion.
+              // across return-value conversion and any re-entrant dispose finishes on exit.
               let _napi_native_borrow =
-                napi::bindgen_prelude::acquire_native_borrow(this_ptr, true)?;
+                napi::bindgen_prelude::acquire_native_borrow_with_env(env, this_ptr, true)?;
               let obj: &mut #struct_name = Box::leak(unsafe { Box::from_raw(this_ptr) });
               #to_napi_value_convert
             }
@@ -1053,9 +1089,10 @@ impl NapiStruct {
               let this_ptr = unsafe {
                 napi::bindgen_prelude::class_accessor_unwrap_this::<#struct_name>(env, this)?
               };
-              // Held until the end of this call, so the field assignment stays exclusive.
+              // Held until the end of this call, so the field assignment stays exclusive
+              // and any re-entrant dispose finishes on exit.
               let _napi_native_borrow =
-                napi::bindgen_prelude::acquire_native_borrow(this_ptr, true)?;
+                napi::bindgen_prelude::acquire_native_borrow_with_env(env, this_ptr, true)?;
               let obj: &mut #struct_name = Box::leak(unsafe { Box::from_raw(this_ptr) });
               obj.#field_ident = val;
               unsafe { <() as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, ()) }
@@ -1157,6 +1194,29 @@ impl NapiStruct {
 
       props.push(prop);
     }
+    if class.disposable {
+      props.push(quote! {
+        napi::bindgen_prelude::Property::new()
+          .with_well_known_symbol("dispose")
+          .with_property_attributes(
+            napi::bindgen_prelude::PropertyAttributes::Writable
+              | napi::bindgen_prelude::PropertyAttributes::Configurable
+          )
+          .with_method(__napi_dispose)
+      });
+    }
+    let register_disposable = if class.disposable {
+      let struct_ty = if self.has_lifetime {
+        quote! { #name<'static> }
+      } else {
+        quote! { #name }
+      };
+      quote! {
+        napi::__private::register_disposable_class(std::any::TypeId::of::<#struct_ty>(), #js_name);
+      }
+    } else {
+      quote! {}
+    };
     let js_mod_ident = js_mod_to_token_stream(self.js_mod.as_ref());
     quote! {
       #[cfg(all(not(test), not(target_family = "wasm")))]
@@ -1165,6 +1225,7 @@ impl NapiStruct {
         #[allow(clippy::all)]
         #[ctor(unsafe)]
         fn #struct_register_name() {
+          #register_disposable
           napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], #implement_iterator);
         }
       }
@@ -1174,6 +1235,7 @@ impl NapiStruct {
       #[cfg(all(not(test), target_family = "wasm"))]
       #[no_mangle]
       extern "C" fn #struct_register_name() {
+        #register_disposable
         napi::__private::register_class(std::any::TypeId::of::<#name>(), #js_mod_ident, #js_name, vec![#(#props),*], #implement_iterator);
       }
     }

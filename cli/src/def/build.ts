@@ -81,6 +81,11 @@ export abstract class BaseBuildCommand extends Command {
       'Path and filename of generated type def file. Relative to `--output-dir`',
   })
 
+  noRootDts?: boolean = Option.Boolean('--no-root-dts', {
+    description:
+      'Skip writing the root TypeScript declaration file while still generating type definitions and WASI target declaration files',
+  })
+
   dtsHeader?: string = Option.String('--dts-header', {
     description:
       'Custom file header for generated type def file. Only works when `typedef` feature enabled.',
@@ -193,6 +198,7 @@ export abstract class BaseBuildCommand extends Command {
       noJsBinding: this.noJsBinding,
       binaryOnly: this.binaryOnly,
       dts: this.dts,
+      noRootDts: this.noRootDts,
       dtsHeader: this.dtsHeader,
       noDtsHeader: this.noDtsHeader,
       dtsCache: this.dtsCache,
@@ -281,6 +287,10 @@ export interface BuildOptions {
    * Path and filename of generated type def file. Relative to `--output-dir`
    */
   dts?: string
+  /**
+   * Skip writing the root TypeScript declaration file while still generating type definitions and WASI target declaration files
+   */
+  noRootDts?: boolean
   /**
    * Custom file header for generated type def file. Only works when `typedef` feature enabled.
    */

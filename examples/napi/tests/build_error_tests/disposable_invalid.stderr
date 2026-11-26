@@ -1,0 +1,101 @@
+error: #[napi(disposable)] can only be applied to a class struct
+ --> tests/build_error_tests/disposable_invalid.rs:3:8
+  |
+3 | #[napi(disposable)]
+  |        ^^^^^^^^^^
+
+error: #[napi(disposable)] can only be applied to a class struct
+ --> tests/build_error_tests/disposable_invalid.rs:6:8
+  |
+6 | #[napi(disposable)]
+  |        ^^^^^^^^^^
+
+error: #[napi(disposable)] can only be applied to a class struct
+  --> tests/build_error_tests/disposable_invalid.rs:11:8
+   |
+11 | #[napi(disposable)]
+   |        ^^^^^^^^^^
+
+error: #[napi(disposable)] can only be applied to a class struct
+  --> tests/build_error_tests/disposable_invalid.rs:14:8
+   |
+14 | #[napi(disposable)]
+   |        ^^^^^^^^^^
+
+error: #[napi(disposable)] can only be applied to a class struct
+  --> tests/build_error_tests/disposable_invalid.rs:17:8
+   |
+17 | #[napi(disposable)]
+   |        ^^^^^^^^^^
+
+error: #[napi(disposable)] can only be applied to a class struct
+  --> tests/build_error_tests/disposable_invalid.rs:25:10
+   |
+25 |   #[napi(disposable)]
+   |          ^^^^^^^^^^
+
+error: #[napi(disposable)] can only be applied to a class struct
+  --> tests/build_error_tests/disposable_invalid.rs:29:8
+   |
+29 | #[napi(disposable)]
+   |        ^^^^^^^^^^
+
+error: #[napi(disposable)] can only be applied to a class struct
+  --> tests/build_error_tests/disposable_invalid.rs:34:10
+   |
+34 |   #[napi(disposable)]
+   |          ^^^^^^^^^^
+
+error: #[napi(disposable)] can only be applied to a class struct without object, array, transparent, iterator, or async_iterator
+  --> tests/build_error_tests/disposable_invalid.rs:38:8
+   |
+38 | #[napi(disposable, object)]
+   |        ^^^^^^^^^^
+
+error: #[napi(disposable)] can only be applied to a class struct without object, array, transparent, iterator, or async_iterator
+  --> tests/build_error_tests/disposable_invalid.rs:43:8
+   |
+43 | #[napi(disposable, array)]
+   |        ^^^^^^^^^^
+
+error: #[napi(disposable)] can only be applied to a class struct without object, array, transparent, iterator, or async_iterator
+  --> tests/build_error_tests/disposable_invalid.rs:46:8
+   |
+46 | #[napi(disposable, transparent)]
+   |        ^^^^^^^^^^
+
+error: #[napi(disposable)] can only be applied to a class struct without object, array, transparent, iterator, or async_iterator
+  --> tests/build_error_tests/disposable_invalid.rs:49:8
+   |
+49 | #[napi(disposable, iterator)]
+   |        ^^^^^^^^^^
+
+error: #[napi(disposable)] can only be applied to a class struct without object, array, transparent, iterator, or async_iterator
+  --> tests/build_error_tests/disposable_invalid.rs:52:8
+   |
+52 | #[napi(disposable, async_iterator)]
+   |        ^^^^^^^^^^
+
+error: #[napi(disposable)] already defines [Symbol.dispose] on this class; remove well_known_symbol = "dispose" on this field
+  --> tests/build_error_tests/disposable_invalid.rs:57:30
+   |
+57 |   #[napi(well_known_symbol = "dispose")]
+   |                              ^^^^^^^^^
+
+error: #[napi(disposable)] already defines [Symbol.dispose] on this class; remove well_known_symbol = "dispose" on this member
+  --> tests/build_error_tests/disposable_invalid.rs:66:30
+   |
+66 |   #[napi(well_known_symbol = "dispose")]
+   |                              ^^^^^^^^^
+
+error: #[napi(disposable)] already defines [Symbol.dispose] on this class; remove well_known_symbol = "dispose" on this member
+  --> tests/build_error_tests/disposable_invalid.rs:75:38
+   |
+75 |   #[napi(getter, well_known_symbol = "dispose")]
+   |                                      ^^^^^^^^^
+
+error: #[napi(disposable)] already defines [Symbol.dispose] on this class; remove well_known_symbol = "dispose" on this member
+  --> tests/build_error_tests/disposable_invalid.rs:86:38
+   |
+86 |   #[napi(setter, well_known_symbol = "dispose")]
+   |                                      ^^^^^^^^^

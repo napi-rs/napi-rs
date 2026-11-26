@@ -26,6 +26,7 @@ import {
   parseTriple,
   readFileAsync,
   readNapiConfig,
+  readWasiArtifactMetadata,
   readdirAsync,
   resolvePackageReconciliationPaths,
   type Target,
@@ -34,10 +35,7 @@ import {
   wasiTargetHasThreads,
   withFileSystemReconciliation,
 } from '../utils/index.js'
-import {
-  createWasiBrowserEntry,
-  WASI_ARTIFACT_METADATA_PREFIX,
-} from './build.js'
+import { createWasiBrowserEntry } from './build.js'
 
 const debug = debugFactory('artifacts')
 
@@ -49,12 +47,6 @@ interface WasiArtifactSource {
 interface PendingWrite {
   content: Buffer
   source: string
-}
-
-interface WasiArtifactMetadata {
-  exports?: string[]
-  rootEntry: string | null
-  managedRootEntries: string[]
 }
 
 // Removed configured targets are recognizable only when their output identity
@@ -415,10 +407,7 @@ async function addWasiBrowserEntry(
   const bindingSource = source.files.get(
     `${binaryName}.${wasiLoaderSuffix(target.platformArchABI)}.cjs`,
   )!
-  const metadata = parseWasiArtifactMetadata(
-    await readFileAsync(bindingSource, 'utf8'),
-    bindingSource,
-  )
+  const metadata = await readWasiArtifactMetadata(bindingSource)
   if (metadata?.exports !== undefined) {
     addPendingWrite(
       pendingWrites,
@@ -460,10 +449,7 @@ async function addWasiRootEntry(
   const bindingSource = source.files.get(
     `${binaryName}.${wasiLoaderSuffix(rootTarget.platformArchABI)}.cjs`,
   )!
-  const metadata = parseWasiArtifactMetadata(
-    await readFileAsync(bindingSource, 'utf8'),
-    bindingSource,
-  )
+  const metadata = await readWasiArtifactMetadata(bindingSource)
   const rootEntry =
     metadata === undefined
       ? await findLegacyRootEntry(source.dir, packageMain)
@@ -541,10 +527,7 @@ async function addArtifactRootEntry({
     if (!bindingPath) {
       continue
     }
-    const metadata = parseWasiArtifactMetadata(
-      await readFileAsync(bindingPath, 'utf8'),
-      bindingPath,
-    )
+    const metadata = await readWasiArtifactMetadata(bindingPath)
     if (metadata === undefined) {
       continue
     }
@@ -1075,54 +1058,6 @@ function packageExportTargets(exportsField: unknown): {
   return { runtime: [...runtime], auxiliary: [...auxiliary] }
 }
 
-function parseWasiArtifactMetadata(content: string, source: string) {
-  const firstLine = content.split(/\r?\n/, 1)[0]
-  if (!firstLine.startsWith(WASI_ARTIFACT_METADATA_PREFIX)) {
-    return undefined
-  }
-  let metadata: unknown
-  try {
-    metadata = JSON.parse(firstLine.slice(WASI_ARTIFACT_METADATA_PREFIX.length))
-  } catch (error) {
-    throw new Error(`Invalid WASI artifact metadata in ${source}`, {
-      cause: error,
-    })
-  }
-  if (typeof metadata !== 'object' || metadata === null) {
-    throw new Error(`Unsupported WASI artifact metadata in ${source}`)
-  }
-  const record = metadata as Record<string, unknown>
-  if (
-    (record.version !== 1 && record.version !== 2) ||
-    (record.rootEntry !== null && typeof record.rootEntry !== 'string')
-  ) {
-    throw new Error(`Unsupported WASI artifact metadata in ${source}`)
-  }
-  const managedRootEntries =
-    record.version === 1
-      ? ['browser.js', ...(record.rootEntry ? [record.rootEntry] : [])]
-      : record.managedRootEntries
-  if (
-    !Array.isArray(managedRootEntries) ||
-    !managedRootEntries.every((entry) => typeof entry === 'string')
-  ) {
-    throw new Error(`Unsupported WASI artifact metadata in ${source}`)
-  }
-  const exports = record.exports
-  if (
-    exports !== undefined &&
-    (!Array.isArray(exports) ||
-      !exports.every((entry) => typeof entry === 'string'))
-  ) {
-    throw new Error(`Unsupported WASI artifact metadata in ${source}`)
-  }
-  return {
-    exports: exports as string[] | undefined,
-    rootEntry: record.rootEntry as string | null,
-    managedRootEntries: [...new Set(managedRootEntries)],
-  } satisfies WasiArtifactMetadata
-}
-
 async function findLegacyRootEntry(
   sourceDir: string,
   packageMain: string | undefined,
@@ -1388,10 +1323,7 @@ async function collectManagedRootEntries(
     if (!(await fileExists(path))) {
       continue
     }
-    const metadata = parseWasiArtifactMetadata(
-      await readFileAsync(path, 'utf8'),
-      path,
-    )
+    const metadata = await readWasiArtifactMetadata(path)
     for (const entry of metadata?.managedRootEntries ?? []) {
       entries.add(entry)
     }

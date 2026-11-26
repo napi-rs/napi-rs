@@ -82,6 +82,11 @@ pub(crate) struct EnvRegistration {
   /// Holder object for the env's `Reflect` / `Reflect.getOwnPropertyDescriptor`
   /// pair, see `crate::error::cache_reflect_intrinsics_for_env`.
   reflect_intrinsics: Option<sys::napi_ref>,
+  /// Holder object `{ map, get, set }` tracking disposed `#[napi(disposable)]`
+  /// JS instances by exact object identity on builds without unforgeable
+  /// object type tags (wasm and pre-napi8).
+  #[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
+  disposed_objects: Option<sys::napi_ref>,
   /// How this env's `AsyncTask` promises are settled. Picked at the env's first task after
   /// this registration has returned (see `crate::async_work::promise`). Holds no reference.
   promise_settle: PromiseSettle,
@@ -284,6 +289,8 @@ fn new_registration(id: RegistrationId, env: sys::napi_env) -> EnvRegistration {
     id,
     env,
     reflect_intrinsics: None,
+    #[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
+    disposed_objects: None,
     promise_settle: PromiseSettle::Registering,
     promise_then: None,
     promise_wrapper: PromiseWrapper::Unset,
@@ -427,6 +434,10 @@ unsafe fn release_registration(registration: EnvRegistration) {
     if unsafe { sys::napi_delete_reference(registration.env, reference) } == sys::Status::napi_ok {
       REFLECT_REFS_DELETED.fetch_add(1, Ordering::Relaxed);
     }
+  }
+  #[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
+  if let Some(reference) = registration.disposed_objects {
+    unsafe { sys::napi_delete_reference(registration.env, reference) };
   }
   if let Some(reference) = registration.promise_then {
     unsafe { sys::napi_delete_reference(registration.env, reference) };
@@ -772,6 +783,52 @@ pub(crate) fn holds_custom_gc(handle: &Arc<CustomGcHandle>) -> bool {
       })
     })
     .unwrap_or(false)
+}
+
+/// Stores the disposed-objects `WeakMap` holder reference in the record with `id`.
+///
+/// Returns `false` when the record is gone or already has one; the caller
+/// then still owns `reference` and must delete it.
+#[cfg(all(
+  not(feature = "noop"),
+  not(all(feature = "napi8", not(target_family = "wasm")))
+))]
+pub(crate) fn set_disposed_objects(id: RegistrationId, reference: sys::napi_ref) -> bool {
+  ENV_REGISTRATIONS
+    .try_with(|registrations| {
+      let Ok(mut registrations) = registrations.try_borrow_mut() else {
+        return false;
+      };
+      match registrations
+        .iter_mut()
+        .rev()
+        .find(|registration| registration.id == id)
+      {
+        Some(registration) if registration.disposed_objects.is_none() => {
+          registration.disposed_objects = Some(reference);
+          true
+        }
+        _ => false,
+      }
+    })
+    .unwrap_or(false)
+}
+
+/// The cached disposed-objects `WeakMap` holder reference of `env`, from its
+/// newest live record.
+#[cfg(not(all(feature = "napi8", not(target_family = "wasm"))))]
+pub(crate) fn disposed_objects(env: sys::napi_env) -> Option<sys::napi_ref> {
+  ENV_REGISTRATIONS
+    .try_with(|registrations| {
+      let registrations = registrations.try_borrow().ok()?;
+      registrations
+        .iter()
+        .rev()
+        .find(|registration| registration.env == env)?
+        .disposed_objects
+    })
+    .ok()
+    .flatten()
 }
 
 /// The cached `Reflect` holder reference of `env`, from its newest live record.

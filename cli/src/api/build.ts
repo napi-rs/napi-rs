@@ -36,14 +36,17 @@ import {
   debugFactory,
   DEFAULT_TYPE_DEF_HEADER,
   fileExists,
+  type FallbackBindingConfig,
   getSystemDefaultTarget,
   getNapiDeriveDependentCrates,
   getPackageReconciliationRoot,
   getTargetLinker,
   mkdirAsync,
   type NapiConfig,
+  normalizeFallbackBinding,
   parseMetadata,
   parseTriple,
+  parseWasiArtifactMetadata,
   processTypeDefs,
   readFileAsync,
   readNapiConfig,
@@ -61,6 +64,7 @@ import {
   rustBundledWasiLibc,
   wasiLibcHasNewFutexAbi,
   wasiLoaderSuffix,
+  WASI_ARTIFACT_METADATA_PREFIX,
   wasiSdkMajorVersion,
   wasiTargetHasThreads,
   writeFileAtomic,
@@ -205,7 +209,7 @@ type ParsedBuildOptions = Omit<BuildOptions, 'cwd' | 'format'> & {
   format: BuildFormat
 }
 
-export const WASI_ARTIFACT_METADATA_PREFIX = '// napi-rs-artifact-metadata:'
+export { WASI_ARTIFACT_METADATA_PREFIX }
 
 // The host protocol a binding built with the `napi-async-runtime` crate
 // exposes (contract version 4). See crates/async-runtime/README.md.
@@ -1017,39 +1021,8 @@ function createWasiArtifactMetadata(
 }
 
 function parseExistingWasiArtifactMetadata(content: string) {
-  const firstLine = content.split(/\r?\n/, 1)[0]
-  if (!firstLine.startsWith(WASI_ARTIFACT_METADATA_PREFIX)) {
-    return undefined
-  }
   try {
-    const metadata = JSON.parse(
-      firstLine.slice(WASI_ARTIFACT_METADATA_PREFIX.length),
-    ) as Record<string, unknown>
-    if (
-      (metadata.version !== 1 && metadata.version !== 2) ||
-      (metadata.rootEntry !== null && typeof metadata.rootEntry !== 'string')
-    ) {
-      return undefined
-    }
-    const managedRootEntries =
-      metadata.version === 1
-        ? ['browser.js', ...(metadata.rootEntry ? [metadata.rootEntry] : [])]
-        : metadata.managedRootEntries
-    if (
-      !Array.isArray(managedRootEntries) ||
-      !managedRootEntries.every((entry) => typeof entry === 'string')
-    ) {
-      return undefined
-    }
-    const exports = metadata.exports
-    return {
-      managedRootEntries,
-      exports:
-        Array.isArray(exports) &&
-        exports.every((entry) => typeof entry === 'string')
-          ? exports
-          : undefined,
-    }
+    return parseWasiArtifactMetadata(content)
   } catch {
     return undefined
   }
@@ -2339,6 +2312,7 @@ class Builder {
   private readonly enableTypeDef: boolean = false
   private readonly stagedOutputDestinations = new Map<string, string>()
   private ephemeralTypeDefFolder: string | undefined
+  private typeDefContent: string | undefined
   private typeDefWithTypeImports: string | undefined
   private resolvedWasmStackSize: ResolvedWasmStackSize | undefined
   /**
@@ -3625,6 +3599,9 @@ class Builder {
     )
     const outputStart = this.outputs.length
     this.stagedOutputDestinations.clear()
+    this.typeDefContent = undefined
+    this.typeDefWithTypeImports = undefined
+    this.typeDefRenderedHeader = undefined
     this.outputDir = stagingDir
 
     try {
@@ -3935,31 +3912,34 @@ class Builder {
     if (declareBindingTarget(exports)) {
       assertBindingTargetIdentFree(exports)
     }
+    this.typeDefContent = dts
     this.typeDefWithTypeImports = dtsWithTypeImports
     this.typeDefRenderedHeader = header
 
-    const typeDefRelativePath = this.options.dts ?? 'index.d.ts'
-    const finalDest = join(this.finalOutputDir, typeDefRelativePath)
-    const dest = this.getStagedOutputPath(finalDest)
+    if (!this.options.noRootDts) {
+      const typeDefRelativePath = this.options.dts ?? 'index.d.ts'
+      const finalDest = join(this.finalOutputDir, typeDefRelativePath)
+      const dest = this.getStagedOutputPath(finalDest)
 
-    try {
-      debug('Writing type def to:')
-      debug('  %i', dest)
-      assertWritableOutputDestination(finalDest)
-      await mkdirAsync(dirname(dest), { recursive: true })
-      await writeFileAtomic(dest, dts, 'utf-8')
-    } catch (e) {
-      throw new Error(`Failed to write type def file ${dest}`, { cause: e })
-    }
+      try {
+        debug('Writing type def to:')
+        debug('  %i', dest)
+        assertWritableOutputDestination(finalDest)
+        await mkdirAsync(dirname(dest), { recursive: true })
+        await writeFileAtomic(dest, dts, 'utf-8')
+      } catch (e) {
+        throw new Error(`Failed to write type def file ${dest}`, { cause: e })
+      }
 
-    // The file is written unconditionally above, so track it whenever this
-    // build filled it. Runtime exports are one reason it has content; the
-    // `__napiBindingTarget` declaration is another, and a crate that registers
-    // everything from a `#[napi(module_exports)]` hook has only the second.
-    // `--pipe` (`cli/src/commands/build.ts`) and the `NapiCli.build` return
-    // value see registered outputs only.
-    if (dts.length > 0) {
-      this.outputs.push({ kind: 'dts', path: dest })
+      // The file is written unconditionally above, so track it whenever this
+      // build filled it. Runtime exports are one reason it has content; the
+      // `__napiBindingTarget` declaration is another, and a crate that registers
+      // everything from a `#[napi(module_exports)]` hook has only the second.
+      // `--pipe` (`cli/src/commands/build.ts`) and the `NapiCli.build` return
+      // value see registered outputs only.
+      if (dts.length > 0) {
+        this.outputs.push({ kind: 'dts', path: dest })
+      }
     }
 
     return exports
@@ -4034,6 +4014,7 @@ class Builder {
       version: process.env.npm_new_version ?? this.config.packageJson.version,
       outputDir: this.outputDir,
       wasiFlavors,
+      fallbackBinding: normalizeFallbackBinding(this.config.fallbackBinding),
     })
   }
 
@@ -4227,11 +4208,8 @@ class Builder {
         this.finalOutputDir,
         this.options.dts ?? 'index.d.ts',
       )
-      const sourceTypeDefPath = this.enableTypeDef
-        ? this.getStagedOutputPath(finalSourceTypeDefPath)
-        : finalSourceTypeDefPath
       const sourceTypeDef = this.enableTypeDef
-        ? await readFileAsync(sourceTypeDefPath, 'utf8')
+        ? (this.typeDefContent ?? '')
         : `${DEFAULT_TYPE_DEF_HEADER}
 declare const binding: Record<string, unknown>
 export = binding
@@ -4786,6 +4764,11 @@ export interface WriteJsBindingOptions {
    * through `NAPI_RS_WASI_FLAVOR`.
    */
   wasiFlavors?: string[]
+  /**
+   * Optional declarative fallback module loaded via `require(specifier)` when
+   * both native and WASI binding resolution fail.
+   */
+  fallbackBinding?: string | FallbackBindingConfig
 }
 
 /** Write a platform binding loader in the requested module format. */
@@ -4822,6 +4805,7 @@ export async function writeJsBinding(
     options.version,
     options.wasiFlavors,
     localWasiSpecifier,
+    normalizeFallbackBinding(options.fallbackBinding),
   )
 
   try {

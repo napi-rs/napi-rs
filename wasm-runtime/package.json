@@ -24,6 +24,7 @@
   "files": [
     "runtime.cjs",
     "runtime.js",
+    "runtime-node.js",
     "fs-proxy.js",
     "dist/*.cjs",
     "dist/*.js",
@@ -62,6 +63,10 @@
   },
   "exports": {
     ".": {
+      "node": {
+        "import": "./runtime-node.js",
+        "require": "./runtime.cjs"
+      },
       "import": "./runtime.js",
       "require": "./runtime.cjs"
     },

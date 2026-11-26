@@ -11270,13 +11270,13 @@ impl RuntimeController {
     Some((Arc::clone(backend), registration))
   }
 
-  fn try_spawn_tracked<F, T>(
+  fn try_spawn_tracked<F>(
     &self,
     future: F,
-  ) -> Result<JoinHandle<T>, (RuntimeConfigError, F, Option<u64>)>
+  ) -> Result<JoinHandle<F::Output>, (RuntimeConfigError, F, Option<u64>)>
   where
-    F: Future<Output = T> + Send + 'static,
-    T: Send + 'static,
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
   {
     #[cfg(test)]
     run_before_runtime_submission_lock_test_hook();
@@ -11326,10 +11326,10 @@ impl RuntimeController {
     ))
   }
 
-  fn try_spawn<F, T>(&self, future: F) -> Result<JoinHandle<T>, (RuntimeConfigError, F)>
+  fn try_spawn<F>(&self, future: F) -> Result<JoinHandle<F::Output>, (RuntimeConfigError, F)>
   where
-    F: Future<Output = T> + Send + 'static,
-    T: Send + 'static,
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
   {
     match self.try_spawn_tracked(future) {
       Ok(handle) => Ok(handle),
@@ -11340,10 +11340,10 @@ impl RuntimeController {
     }
   }
 
-  fn spawn<F, T>(&self, future: F) -> JoinHandle<T>
+  fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
   where
-    F: Future<Output = T> + Send + 'static,
-    T: Send + 'static,
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
   {
     match self.try_spawn_tracked(future) {
       Ok(handle) => handle,
@@ -12240,15 +12240,15 @@ pub fn is_multi_threaded() -> bool {
   RUNTIME.options().flavor == RuntimeFlavor::MultiThread
 }
 
-fn spawn_registered<F, T>(
+fn spawn_registered<F>(
   backend: &RuntimeBackend,
   metrics: Arc<RuntimeMetrics>,
   future: F,
   registration: (AbortRegistration, GenerationWorkGuard),
-) -> JoinHandle<T>
+) -> JoinHandle<F::Output>
 where
-  F: Future<Output = T> + Send + 'static,
-  T: Send + 'static,
+  F: Future + Send + 'static,
+  F::Output: Send + 'static,
 {
   metrics.tasks_spawned.fetch_add(1, Ordering::Relaxed);
   let generation = backend.generation();
@@ -12300,10 +12300,10 @@ where
   })
 }
 
-pub fn spawn<F, T>(future: F) -> JoinHandle<T>
+pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
 where
-  F: Future<Output = T> + Send + 'static,
-  T: Send + 'static,
+  F: Future + Send + 'static,
+  F::Output: Send + 'static,
 {
   RUNTIME.spawn(future)
 }
@@ -12319,10 +12319,10 @@ where
 /// cannot observe up front. Here the failure is an `Err` you can act on; the
 /// infallible helpers turn it into a panic, which `panic = "abort"` then turns
 /// into a dead instance.
-pub fn try_spawn<F, T>(future: F) -> Result<JoinHandle<T>, (RuntimeConfigError, F)>
+pub fn try_spawn<F>(future: F) -> Result<JoinHandle<F::Output>, (RuntimeConfigError, F)>
 where
-  F: Future<Output = T> + Send + 'static,
-  T: Send + 'static,
+  F: Future + Send + 'static,
+  F::Output: Send + 'static,
 {
   RUNTIME.try_spawn(future)
 }

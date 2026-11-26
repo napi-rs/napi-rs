@@ -1,13 +1,16 @@
 use std::{
   cell::{Cell, RefCell},
   collections::HashMap,
+  ffi::c_void,
   ptr,
   sync::{Arc, Mutex, MutexGuard},
   thread::{self, ThreadId},
 };
 
 #[cfg(all(feature = "napi4", not(feature = "noop")))]
-use crate::bindgen_runtime::module_register::{custom_gc_handle_for_env, CustomGcHandle};
+use crate::bindgen_runtime::module_register::{
+  custom_gc_handle_for_env, CustomGcHandle, DeferredDisposeItem,
+};
 use rustc_hash::FxBuildHasher;
 
 use crate::{sys, Error, Result, Status};
@@ -18,10 +21,27 @@ enum NativeBorrowKind {
   Exclusive,
 }
 
+struct PendingDispose {
+  ptr: *mut c_void,
+  finalize: unsafe fn(sys::napi_env, *mut c_void) -> Result<()>,
+  owner_env: sys::napi_env,
+  owner_thread: ThreadId,
+  #[cfg(all(feature = "napi4", not(feature = "noop")))]
+  custom_gc: Option<Arc<CustomGcHandle>>,
+}
+
+// SAFETY: `ptr` and `owner_env` are only ever passed to `finalize` on `owner_thread`
+// with a verified-live `owner_env`, or delegated to `custom_gc` which runs `finalize`
+// on `owner_thread` with the live env from its TSFN / cleanup / sentinel callback.
+unsafe impl Send for PendingDispose {}
+
 #[derive(Default)]
 struct NativeBorrowState {
   shared: usize,
   exclusive: bool,
+  dispose_pins: usize,
+  has_live_refs: bool,
+  pending_dispose: Option<PendingDispose>,
 }
 
 type NativeBorrowMap = HashMap<usize, NativeBorrowState, FxBuildHasher>;
@@ -49,7 +69,7 @@ fn native_borrows(key: usize) -> MutexGuard<'static, NativeBorrowMap> {
 type SharedStorage = Arc<Mutex<NativeBorrowStorage>>;
 
 enum ScopeEntry {
-  Barrier,
+  Barrier(Option<Vec<(sys::napi_env, DisposePinGuard)>>),
   Collecting(Option<SharedStorage>),
 }
 
@@ -85,10 +105,15 @@ fn recycle_storage(mut storage: SharedStorage) {
   let inner = inner
     .get_mut()
     .unwrap_or_else(std::sync::PoisonError::into_inner);
-  if !inner.guards.is_empty() || !inner.roots.is_empty() || inner.open_leases != 0 {
+  if !inner.guards.is_empty()
+    || !inner.dispose_pins.is_empty()
+    || !inner.roots.is_empty()
+    || inner.open_leases != 0
+  {
     return;
   }
   if inner.guards.capacity() > NATIVE_BORROW_STORAGE_POOL_MAX_CAPACITY
+    || inner.dispose_pins.capacity() > NATIVE_BORROW_STORAGE_POOL_MAX_CAPACITY
     || inner.borrowed_values.capacity() > NATIVE_BORROW_STORAGE_POOL_MAX_CAPACITY
     || inner.roots.capacity() > NATIVE_BORROW_STORAGE_POOL_MAX_CAPACITY
   {
@@ -114,6 +139,7 @@ fn recycle_storage(mut storage: SharedStorage) {
 #[derive(Default)]
 struct NativeBorrowStorage {
   guards: Vec<NativeBorrowGuard>,
+  dispose_pins: Vec<DisposePinGuard>,
   roots: Vec<NativeBorrowRoot>,
   /// The `(env, napi_value)` pairs behind each registered borrow, recorded cheaply at
   /// conversion time. They become `roots` only when an async sink claims a lease on the
@@ -172,72 +198,159 @@ fn lock_storage(storage: &Mutex<NativeBorrowStorage>) -> MutexGuard<'_, NativeBo
     .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-impl NativeBorrowStorage {
-  /// Direct release on the JavaScript owner thread: drops the alias guards (the Rust
-  /// references captured by the async work are already gone) and unref+deletes every
-  /// root — which may run wrapper finalizers, i.e. re-entrant JavaScript.
-  fn release(&mut self, expected_env: Option<sys::napi_env>) {
-    self.guards.clear();
-    if self.roots.is_empty() {
-      return;
+#[derive(Clone, Copy)]
+enum ReleaseMode {
+  /// Caller holds a verified-live `env` on the owning JS thread.
+  LiveEnv(sys::napi_env),
+  /// Caller is dropping a `!Send` collecting `NativeBorrowScope` inside its live
+  /// callback frame on the owner thread (`close_scope_in_frame`).
+  InFrame,
+  /// Caller has no proof the owner env is live or is on a foreign thread.
+  Abandon,
+}
+
+struct TakenReleaseWork {
+  roots: Vec<NativeBorrowRoot>,
+  pending_disposals: Vec<PendingDispose>,
+  owner_thread: Option<ThreadId>,
+  #[cfg(all(feature = "napi4", not(feature = "noop")))]
+  custom_gc: Option<Arc<CustomGcHandle>>,
+}
+
+fn take_ready_pending_dispose(borrows: &mut NativeBorrowMap, key: usize) -> Option<PendingDispose> {
+  let ready = borrows.get(&key).is_some_and(|state| {
+    state.shared == 0 && !state.exclusive && state.dispose_pins == 0 && !state.has_live_refs
+  });
+  if ready {
+    borrows.remove(&key).and_then(|state| state.pending_dispose)
+  } else {
+    None
+  }
+}
+
+fn complete_pending_dispose(
+  pending: PendingDispose,
+  mode: ReleaseMode,
+  batch: &mut crate::bindgen_runtime::DeferredDisposeBatch,
+  has_more: bool,
+) {
+  let sync_env = match mode {
+    ReleaseMode::LiveEnv(env)
+      if pending.owner_thread == thread::current().id() && pending.owner_env == env =>
+    {
+      Some(env)
     }
-    if self.owner_thread != Some(thread::current().id()) {
-      std::process::abort();
+    ReleaseMode::InFrame if pending.owner_thread == thread::current().id() => {
+      Some(pending.owner_env)
     }
-    for root in self.roots.drain(..) {
-      if expected_env.is_some_and(|expected_env| expected_env != root.env) {
-        std::process::abort();
+    _ => None,
+  };
+
+  if let Some(env) = sync_env {
+    unsafe { batch.run(env, pending.ptr, pending.finalize, has_more) };
+  } else {
+    #[cfg(all(feature = "napi4", not(feature = "noop")))]
+    if let Some(handle) = pending.custom_gc {
+      CustomGcHandle::defer_dispose(
+        &handle,
+        DeferredDisposeItem {
+          ptr: pending.ptr,
+          finalize: pending.finalize,
+        },
+      );
+    }
+  }
+}
+
+fn finish_release_work(work: TakenReleaseWork, mode: ReleaseMode) {
+  match mode {
+    ReleaseMode::LiveEnv(expected_env) => {
+      release_roots_direct(work.roots, work.owner_thread, Some(expected_env));
+    }
+    ReleaseMode::InFrame => {
+      release_roots_direct(work.roots, work.owner_thread, None);
+    }
+    ReleaseMode::Abandon => {
+      #[cfg(all(feature = "napi4", not(feature = "noop")))]
+      if !work.roots.is_empty() {
+        if let Some(handle) = work.custom_gc {
+          for root in work.roots {
+            CustomGcHandle::defer_ref(&handle, root.reference);
+          }
+        }
       }
-      let mut ref_count = 0;
-      let unref_status =
-        unsafe { sys::napi_reference_unref(root.env, root.reference, &mut ref_count) };
-      let delete_status = unsafe { sys::napi_delete_reference(root.env, root.reference) };
-      if cfg!(debug_assertions)
-        && (unref_status != sys::Status::napi_ok || delete_status != sys::Status::napi_ok)
-      {
-        crate::bindgen_runtime::catch_unwind_safely(|| {
-          eprintln!(
-            "Failed to release generated native borrow root: unref={}, delete={}",
-            Status::from(unref_status),
-            Status::from(delete_status)
-          );
-        });
-      }
+      #[cfg(not(all(feature = "napi4", not(feature = "noop"))))]
+      let _ = work.roots;
     }
   }
 
-  /// Release reached without a known-live owner thread: the scope/lease was dropped
-  /// rather than released through a settle path — a settle callback discarded during
-  /// env teardown, an `AsyncWork` box reclaimed on a foreign thread, a runtime
-  /// shutdown dropping pending futures' `JsDeferred` clones on worker threads, or any
-  /// `JsDeferred` dropped unsettled (its settle callback is dropped without running).
-  ///
-  /// Drops the alias guards (that only needs the global borrow map), then hands each
-  /// JavaScript root to the owning env's custom-GC handle — callable from any thread;
-  /// the ref is unref+deleted on the JavaScript thread (same protocol as
-  /// `Buffer`/`FunctionRef` off-thread drops). The roots are leaked only when no
-  /// handle was captured or the handle reports the env already gone. Env teardown then
-  /// resets the refs' V8 handles, so nothing stays alive in JavaScript, but Node never
-  /// frees the `napi_ref` boxes themselves (48 bytes each).
-  fn release_or_delegate(&mut self) {
-    self.guards.clear();
-    self.borrowed_values.clear();
-    if self.roots.is_empty() {
-      return;
+  let total = work.pending_disposals.len();
+  let mut batch = crate::bindgen_runtime::DeferredDisposeBatch::new(true);
+  for (idx, pending) in work.pending_disposals.into_iter().enumerate() {
+    complete_pending_dispose(pending, mode, &mut batch, idx + 1 < total);
+  }
+  batch.finish();
+}
+
+fn release_roots_direct(
+  roots: Vec<NativeBorrowRoot>,
+  owner_thread: Option<ThreadId>,
+  expected_env: Option<sys::napi_env>,
+) {
+  if roots.is_empty() {
+    return;
+  }
+  if owner_thread != Some(thread::current().id()) {
+    std::process::abort();
+  }
+  for root in roots {
+    if expected_env.is_some_and(|expected_env| expected_env != root.env) {
+      std::process::abort();
     }
-    #[cfg(all(feature = "napi4", not(feature = "noop")))]
-    if let Some(handle) = self.custom_gc.clone() {
-      // Even on the owner thread the handle's route is the safe one: this path runs
-      // precisely when the env may already be dying (uninvoked settle closures), and a
-      // direct `napi_reference_unref` on a dead env is a use-after-free.
-      for root in std::mem::take(&mut self.roots) {
-        CustomGcHandle::defer_ref(&handle, root.reference);
+    let mut ref_count = 0;
+    let unref_status =
+      unsafe { sys::napi_reference_unref(root.env, root.reference, &mut ref_count) };
+    let delete_status = unsafe { sys::napi_delete_reference(root.env, root.reference) };
+    if cfg!(debug_assertions)
+      && (unref_status != sys::Status::napi_ok || delete_status != sys::Status::napi_ok)
+    {
+      crate::bindgen_runtime::catch_unwind_safely(|| {
+        eprintln!(
+          "Failed to release generated native borrow root: unref={}, delete={}",
+          Status::from(unref_status),
+          Status::from(delete_status)
+        );
+      });
+    }
+  }
+}
+
+impl NativeBorrowStorage {
+  /// Drains all guards, dispose pins, and roots while preserving `Vec` capacities
+  /// for storage pooling. Every `NATIVE_BORROWS` shard lock is dropped before
+  /// returning, and the caller MUST drop the `storage` lock before calling
+  /// [`finish_release_work`].
+  fn take_release_work(&mut self) -> TakenReleaseWork {
+    let mut pending_disposals = Vec::new();
+    for guard in self.guards.drain(..) {
+      if let Some(pending) = guard.release_inner() {
+        pending_disposals.push(pending);
       }
-      return;
     }
-    // No handle captured (pre-napi4/noop build, or the scope rooted before module
-    // registration): the owner env is unreachable, so the roots leak.
-    self.roots.clear();
+    for pin in self.dispose_pins.drain(..) {
+      if let Some(pending) = pin.release_inner() {
+        pending_disposals.push(pending);
+      }
+    }
+    self.borrowed_values.clear();
+    let roots = std::mem::take(&mut self.roots);
+    TakenReleaseWork {
+      roots,
+      pending_disposals,
+      owner_thread: self.owner_thread,
+      #[cfg(all(feature = "napi4", not(feature = "noop")))]
+      custom_gc: self.custom_gc.clone(),
+    }
   }
 
   /// Upgrades the recorded borrowed values into `napi_ref` roots.
@@ -321,16 +434,20 @@ impl NativeBorrowStorage {
 /// the env a settle path runs against (live, on the owner thread); `None` marks a drop
 /// on an unknown thread, which delegates or leaks the roots instead of calling napi.
 fn close_scope(storage: &Mutex<NativeBorrowStorage>, settle_env: Option<sys::napi_env>) {
-  let mut storage = lock_storage(storage);
-  storage.closed = true;
-  if storage.open_leases != 0 {
-    // Outstanding leases own the release: the last one out performs it.
-    return;
-  }
-  match settle_env {
-    Some(env) => storage.release(Some(env)),
-    None => storage.release_or_delegate(),
-  }
+  let work = {
+    let mut storage = lock_storage(storage);
+    storage.closed = true;
+    if storage.open_leases != 0 {
+      // Outstanding leases own the release: the last one out performs it.
+      return;
+    }
+    storage.take_release_work()
+  };
+  let mode = match settle_env {
+    Some(env) => ReleaseMode::LiveEnv(env),
+    None => ReleaseMode::Abandon,
+  };
+  finish_release_work(work, mode);
 }
 
 /// Closes a scope dropped while still collecting — reachable only on the owner thread
@@ -339,33 +456,40 @@ fn close_scope(storage: &Mutex<NativeBorrowStorage>, settle_env: Option<sys::nap
 /// unref+delete directly instead of leaking on pre-napi4 builds, which have no
 /// custom-GC delegate to offload the release to.
 fn close_scope_in_frame(storage: &Mutex<NativeBorrowStorage>) {
-  let mut storage = lock_storage(storage);
-  storage.closed = true;
-  if storage.open_leases != 0 {
-    // Defensive: a collecting scope should never hold a lease — claims happen only on
-    // deferred (finished) scopes.
-    return;
-  }
-  storage.release(None);
+  let work = {
+    let mut storage = lock_storage(storage);
+    storage.closed = true;
+    if storage.open_leases != 0 {
+      // Defensive: a collecting scope should never hold a lease — claims happen only on
+      // deferred (finished) scopes.
+      return;
+    }
+    storage.take_release_work()
+  };
+  finish_release_work(work, ReleaseMode::InFrame);
 }
 
 /// Releases one lease; the transition to zero leases on a closed scope performs the
 /// scope's release — directly when `settle_env` names the live env on the owner
 /// thread, through the custom-GC delegate otherwise.
 fn release_lease(storage: &Mutex<NativeBorrowStorage>, settle_env: Option<sys::napi_env>) {
-  let mut storage = lock_storage(storage);
-  debug_assert!(
-    storage.open_leases != 0,
-    "native borrow lease released more times than it was claimed"
-  );
-  storage.open_leases = storage.open_leases.saturating_sub(1);
-  if !storage.closed || storage.open_leases != 0 {
-    return;
-  }
-  match settle_env {
-    Some(env) => storage.release(Some(env)),
-    None => storage.release_or_delegate(),
-  }
+  let work = {
+    let mut storage = lock_storage(storage);
+    debug_assert!(
+      storage.open_leases != 0,
+      "native borrow lease released more times than it was claimed"
+    );
+    storage.open_leases = storage.open_leases.saturating_sub(1);
+    if !storage.closed || storage.open_leases != 0 {
+      return;
+    }
+    storage.take_release_work()
+  };
+  let mode = match settle_env {
+    Some(env) => ReleaseMode::LiveEnv(env),
+    None => ReleaseMode::Abandon,
+  };
+  finish_release_work(work, mode);
 }
 
 /// Prevents a reentrant callback from registering native references in an outer
@@ -388,7 +512,7 @@ pub struct NativeBorrowBarrier {
 impl NativeBorrowBarrier {
   #[doc(hidden)]
   pub fn new() -> Self {
-    NATIVE_BORROW_SCOPES.with(|scopes| scopes.borrow_mut().push(ScopeEntry::Barrier));
+    NATIVE_BORROW_SCOPES.with(|scopes| scopes.borrow_mut().push(ScopeEntry::Barrier(None)));
     let len = DEFERRED_NATIVE_BORROW_SCOPES.with(|scopes| scopes.borrow().len());
     Self {
       saved_floor: DEFERRED_NATIVE_BORROW_FLOOR.with(|floor| floor.replace(len)),
@@ -399,15 +523,17 @@ impl NativeBorrowBarrier {
 
 impl Drop for NativeBorrowBarrier {
   fn drop(&mut self) {
-    NATIVE_BORROW_SCOPES.with(|scopes| {
+    let barrier_pins = NATIVE_BORROW_SCOPES.with(|scopes| {
       let barrier = scopes
         .borrow_mut()
         .pop()
         .expect("native borrow barriers must be dropped in stack order");
-      assert!(
-        matches!(barrier, ScopeEntry::Barrier),
-        "native borrow barriers must not overlap conversion scopes"
-      );
+      match barrier {
+        ScopeEntry::Barrier(pins) => pins,
+        ScopeEntry::Collecting(_) => {
+          panic!("native borrow barriers must not overlap conversion scopes")
+        }
+      }
     });
     let floor = DEFERRED_NATIVE_BORROW_FLOOR.with(|floor| floor.replace(self.saved_floor));
     // A well-formed reentrant frame pops every scope it deferred through its own
@@ -423,6 +549,29 @@ impl Drop for NativeBorrowBarrier {
       }
     });
     drop(leftover);
+    // Release any disposable `into_instance` pins acquired in this callback frame
+    // AFTER popping the barrier from TLS so deferred finalizers can freely re-enter.
+    // Throw only after running the whole batch so an earlier error cannot fail
+    // later finalizers' Node-API calls with `PendingException`.
+    if let Some(pins) = barrier_pins {
+      let mut pending_disposals = Vec::new();
+      for (env, pin) in pins {
+        if let Some(pending) = pin.release_inner() {
+          pending_disposals.push((env, pending));
+        }
+      }
+      let total = pending_disposals.len();
+      let mut batch = crate::bindgen_runtime::DeferredDisposeBatch::new(true);
+      for (idx, (env, pending)) in pending_disposals.into_iter().enumerate() {
+        complete_pending_dispose(
+          pending,
+          ReleaseMode::LiveEnv(env),
+          &mut batch,
+          idx + 1 < total,
+        );
+      }
+      batch.finish();
+    }
   }
 }
 
@@ -891,10 +1040,27 @@ impl Drop for NativeBorrowScopeRelease {
 pub struct NativeBorrowGuard {
   key: usize,
   kind: NativeBorrowKind,
+  release_env: Option<sys::napi_env>,
 }
 
 impl NativeBorrowGuard {
   fn acquire<T>(value: *mut T, kind: NativeBorrowKind) -> Result<Self> {
+    Self::acquire_inner(value, kind, None)
+  }
+
+  fn acquire_with_env<T>(
+    env: sys::napi_env,
+    value: *mut T,
+    kind: NativeBorrowKind,
+  ) -> Result<Self> {
+    Self::acquire_inner(value, kind, Some(env))
+  }
+
+  fn acquire_inner<T>(
+    value: *mut T,
+    kind: NativeBorrowKind,
+    release_env: Option<sys::napi_env>,
+  ) -> Result<Self> {
     if value.is_null() {
       return Err(Error::new(
         Status::InvalidArg,
@@ -924,15 +1090,21 @@ impl NativeBorrowGuard {
       }
       NativeBorrowKind::Exclusive => state.exclusive = true,
     }
-    Ok(Self { key, kind })
+    Ok(Self {
+      key,
+      kind,
+      release_env,
+    })
   }
-}
 
-impl Drop for NativeBorrowGuard {
-  fn drop(&mut self) {
-    let mut borrows = native_borrows(self.key);
+  fn release_inner(mut self) -> Option<PendingDispose> {
+    let key = std::mem::replace(&mut self.key, 0);
+    if key == 0 {
+      return None;
+    }
+    let mut borrows = native_borrows(key);
     let state = borrows
-      .get_mut(&self.key)
+      .get_mut(&key)
       .expect("native borrow guard must have a registered state");
     match self.kind {
       NativeBorrowKind::Shared => {
@@ -943,8 +1115,104 @@ impl Drop for NativeBorrowGuard {
       }
       NativeBorrowKind::Exclusive => state.exclusive = false,
     }
-    if state.shared == 0 && !state.exclusive {
-      borrows.remove(&self.key);
+    take_ready_pending_dispose(&mut borrows, key)
+  }
+}
+
+impl Drop for NativeBorrowGuard {
+  fn drop(&mut self) {
+    let key = std::mem::replace(&mut self.key, 0);
+    if key == 0 {
+      return;
+    }
+    let pending = {
+      let mut borrows = native_borrows(key);
+      let state = borrows
+        .get_mut(&key)
+        .expect("native borrow guard must have a registered state");
+      match self.kind {
+        NativeBorrowKind::Shared => {
+          state.shared = state
+            .shared
+            .checked_sub(1)
+            .expect("native shared borrow count underflow");
+        }
+        NativeBorrowKind::Exclusive => state.exclusive = false,
+      }
+      take_ready_pending_dispose(&mut borrows, key)
+    };
+    if let Some(pending) = pending {
+      let mode = match self.release_env {
+        Some(env) => ReleaseMode::LiveEnv(env),
+        None => ReleaseMode::Abandon,
+      };
+      let mut batch = crate::bindgen_runtime::DeferredDisposeBatch::new(true);
+      complete_pending_dispose(pending, mode, &mut batch, false);
+      batch.finish();
+    }
+  }
+}
+
+struct DisposePinGuard {
+  key: usize,
+}
+
+impl DisposePinGuard {
+  fn acquire(value: *mut c_void) -> Result<Self> {
+    if value.is_null() {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Cannot pin a null native value".to_owned(),
+      ));
+    }
+    let key = value as usize;
+    let mut borrows = native_borrows(key);
+    let state = borrows.entry(key).or_default();
+    state.dispose_pins = state
+      .dispose_pins
+      .checked_add(1)
+      .expect("native dispose pin count overflow");
+    Ok(Self { key })
+  }
+
+  fn release_inner(mut self) -> Option<PendingDispose> {
+    let key = std::mem::replace(&mut self.key, 0);
+    if key == 0 {
+      return None;
+    }
+    let mut borrows = native_borrows(key);
+    let state = borrows
+      .get_mut(&key)
+      .expect("native dispose pin guard must have a registered state");
+    state.dispose_pins = state
+      .dispose_pins
+      .checked_sub(1)
+      .expect("native dispose pin count underflow");
+    take_ready_pending_dispose(&mut borrows, key)
+  }
+}
+
+impl Drop for DisposePinGuard {
+  fn drop(&mut self) {
+    let key = std::mem::replace(&mut self.key, 0);
+    if key == 0 {
+      return;
+    }
+    let pending = {
+      let mut borrows = native_borrows(key);
+      let state = borrows
+        .get_mut(&key)
+        .expect("native dispose pin guard must have a registered state");
+      state.dispose_pins = state
+        .dispose_pins
+        .checked_sub(1)
+        .expect("native dispose pin count underflow");
+      take_ready_pending_dispose(&mut borrows, key)
+    };
+    if let Some(pending) = pending {
+      let mut batch = crate::bindgen_runtime::DeferredDisposeBatch::new(true);
+      complete_pending_dispose(pending, ReleaseMode::Abandon, &mut batch, false);
+      batch.finish();
     }
   }
 }
@@ -1012,7 +1280,7 @@ unsafe fn register_native_borrow_with_value_in_scope<T>(
   value: *mut T,
   mutable: bool,
 ) -> Result<()> {
-  let guard = NativeBorrowGuard::acquire(value, native_borrow_kind(mutable))?;
+  let guard = NativeBorrowGuard::acquire_with_env(env, value, native_borrow_kind(mutable))?;
   let mut storage = lock_storage(&scope);
   if storage.root_values {
     // Async callbacks root eagerly: their scope leaves this thread inside the generated
@@ -1046,6 +1314,168 @@ unsafe fn register_native_borrow_with_value_in_scope<T>(
   Ok(())
 }
 
+unsafe fn pin_disposable_in_collecting_scope(
+  scope: SharedStorage,
+  env: sys::napi_env,
+  napi_val: sys::napi_value,
+  value: *mut c_void,
+) -> Result<()> {
+  let pin = DisposePinGuard::acquire(value)?;
+  let mut storage = lock_storage(&scope);
+  if storage.root_values {
+    if !napi_val.is_null() {
+      let mut reference = ptr::null_mut();
+      let status = unsafe { sys::napi_create_reference(env, napi_val, 1, &mut reference) };
+      if status != sys::Status::napi_ok {
+        drop(storage);
+        drop(pin);
+        return Err(Error::new(
+          Status::from(status),
+          "Failed to root JavaScript value for a disposable ClassInstance".to_owned(),
+        ));
+      }
+      storage.capture_custom_gc(env);
+      storage.roots.push(NativeBorrowRoot { env, reference });
+    }
+  } else if !napi_val.is_null() {
+    storage.borrowed_values.push(NativeBorrowedValue {
+      env,
+      value: napi_val,
+    });
+  }
+  storage.dispose_pins.push(pin);
+  Ok(())
+}
+
+/// Pins a disposable class instance in the currently collecting borrow scope.
+/// Used by `ClassInstance<T>::from_napi_value` so re-entrant `[Symbol.dispose]()`
+/// defers until the callback finishes, and rejects extraction outside generated
+/// callback argument conversion (empty stack or behind a `NativeBorrowBarrier`)
+/// so no unpinned `ClassInstance` can escape.
+pub(crate) unsafe fn pin_disposable_in_scope(
+  env: sys::napi_env,
+  napi_val: sys::napi_value,
+  value: *mut c_void,
+) -> Result<()> {
+  let scope = current_native_borrow_scope().map_err(|_| {
+    Error::new(
+      Status::InvalidArg,
+      "Disposable `ClassInstance` can only be extracted during generated callback argument conversion; use `Reference<T>` instead"
+        .to_owned(),
+    )
+  })?;
+  unsafe { pin_disposable_in_collecting_scope(scope, env, napi_val, value) }
+}
+
+/// Pins a disposable class instance in the active `#[napi]` callback frame
+/// (either a collecting argument-conversion scope or the active callback's
+/// `NativeBorrowBarrier`). Used by generated `JavaScriptClassExt::into_instance`
+/// for `#[napi(disposable)]` classes so re-entrant `[Symbol.dispose]()` during
+/// the callback defers drop until the frame exits.
+///
+/// # Safety
+///
+/// `env` must be a live `napi_env` on the owning JS thread, `napi_val` must be
+/// the wrapped JS object in `env` (or null in unit tests), and `value` must be
+/// the wrapped native pointer.
+#[doc(hidden)]
+pub unsafe fn pin_disposable_in_active_frame(
+  env: sys::napi_env,
+  napi_val: sys::napi_value,
+  value: *mut c_void,
+) -> Result<()> {
+  enum ActiveFrame {
+    Collecting(SharedStorage),
+    Barrier,
+    None,
+  }
+  let frame = NATIVE_BORROW_SCOPES.with(|scopes| match scopes.borrow_mut().last_mut() {
+    Some(ScopeEntry::Collecting(storage)) => {
+      ActiveFrame::Collecting(storage.get_or_insert_with(new_storage).clone())
+    }
+    Some(ScopeEntry::Barrier(_)) => ActiveFrame::Barrier,
+    None => ActiveFrame::None,
+  });
+  match frame {
+    ActiveFrame::Collecting(scope) => {
+      unsafe { pin_disposable_in_collecting_scope(scope, env, napi_val, value) }
+    }
+    ActiveFrame::Barrier => {
+      let pin = DisposePinGuard::acquire(value)?;
+      NATIVE_BORROW_SCOPES.with(|scopes| {
+        if let Some(ScopeEntry::Barrier(pins)) = scopes.borrow_mut().last_mut() {
+          pins.get_or_insert_with(Vec::new).push((env, pin));
+        } else {
+          unreachable!("active native borrow barrier disappeared during pin acquisition");
+        }
+      });
+      Ok(())
+    }
+    ActiveFrame::None => Err(Error::new(
+      Status::InvalidArg,
+      "Disposable `into_instance` requires an active `#[napi]` callback frame; return the value directly or use `into_reference` instead"
+        .to_owned(),
+    )),
+  }
+}
+
+/// Coordinates explicit `[Symbol.dispose]()` with active borrows, `ClassInstance`
+/// pins, and live `Reference<T>` handles under `NATIVE_BORROWS[shard]`.
+///
+/// Returns `false` when nothing holds `ptr` alive — the caller may finalize `ptr`
+/// immediately with no locks held. Returns `true` when disposal was deferred and
+/// `PendingDispose` has been stored under `NATIVE_BORROWS[shard]`.
+pub(crate) fn schedule_or_defer_dispose(
+  env: sys::napi_env,
+  ptr: *mut c_void,
+  has_live_refs: bool,
+  finalize: unsafe fn(sys::napi_env, *mut c_void) -> Result<()>,
+) -> bool {
+  let key = ptr as usize;
+  let mut borrows = native_borrows(key);
+  let has_active_holds = has_live_refs
+    || borrows
+      .get(&key)
+      .is_some_and(|state| state.shared > 0 || state.exclusive || state.dispose_pins > 0);
+  if !has_active_holds {
+    return false;
+  }
+  let state = borrows.entry(key).or_default();
+  state.has_live_refs = has_live_refs;
+  state.pending_dispose = Some(PendingDispose {
+    ptr,
+    finalize,
+    owner_env: env,
+    owner_thread: thread::current().id(),
+    #[cfg(all(feature = "napi4", not(feature = "noop")))]
+    custom_gc: custom_gc_handle_for_env(env),
+  });
+  true
+}
+
+/// Called by `Reference<T>::drop` when the last `Reference<T>` for a disposable
+/// class drops (`Arc::strong_count == 2` before dropping its `Arc` field).
+pub(crate) fn release_disposable_ref_count(env: sys::napi_env, ptr: *mut c_void) {
+  if ptr.is_null() {
+    return;
+  }
+  let key = ptr as usize;
+  let pending = {
+    let mut borrows = native_borrows(key);
+    if let Some(state) = borrows.get_mut(&key) {
+      state.has_live_refs = false;
+      take_ready_pending_dispose(&mut borrows, key)
+    } else {
+      None
+    }
+  };
+  if let Some(pending) = pending {
+    let mut batch = crate::bindgen_runtime::DeferredDisposeBatch::new(true);
+    complete_pending_dispose(pending, ReleaseMode::LiveEnv(env), &mut batch, false);
+    batch.finish();
+  }
+}
+
 fn current_native_borrow_scope() -> Result<SharedStorage> {
   NATIVE_BORROW_SCOPES.with(|scopes| match scopes.borrow_mut().last_mut() {
     Some(ScopeEntry::Collecting(storage)) => Ok(storage.get_or_insert_with(new_storage).clone()),
@@ -1075,14 +1505,18 @@ fn native_borrow_kind(mutable: bool) -> NativeBorrowKind {
 /// Acquires a native borrow for a closure-based public API.
 #[doc(hidden)]
 pub fn acquire_native_borrow<T>(value: *mut T, mutable: bool) -> Result<NativeBorrowGuard> {
-  NativeBorrowGuard::acquire(
-    value,
-    if mutable {
-      NativeBorrowKind::Exclusive
-    } else {
-      NativeBorrowKind::Shared
-    },
-  )
+  NativeBorrowGuard::acquire(value, native_borrow_kind(mutable))
+}
+
+/// Acquires a native borrow tied to a live `env` on its owning JS thread so a
+/// re-entrant `[Symbol.dispose]()` completes synchronously when this guard drops.
+#[doc(hidden)]
+pub fn acquire_native_borrow_with_env<T>(
+  env: sys::napi_env,
+  value: *mut T,
+  mutable: bool,
+) -> Result<NativeBorrowGuard> {
+  NativeBorrowGuard::acquire_with_env(env, value, native_borrow_kind(mutable))
 }
 
 #[cfg(test)]
@@ -1709,5 +2143,247 @@ mod tests {
     assert_eq!(storage.roots[1].reference as usize, val2 as usize);
     // Clear synthetic pointers so Drop does not invoke Node-API.
     storage.roots.clear();
+  }
+
+  #[test]
+  fn dispose_is_immediate_without_holds_and_deferred_under_shared_or_exclusive_borrows() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    unsafe fn count_finalize(_env: sys::napi_env, ptr: *mut c_void) -> Result<()> {
+      let counter = unsafe { &*(ptr as *const AtomicUsize) };
+      counter.fetch_add(1, Ordering::SeqCst);
+      Ok(())
+    }
+
+    let env = 0x2000usize as sys::napi_env;
+    let counter = AtomicUsize::new(0);
+    let ptr = (&counter as *const AtomicUsize).cast_mut().cast::<c_void>();
+
+    // No active holds -> immediate dispose (returns false).
+    assert!(!schedule_or_defer_dispose(env, ptr, false, count_finalize));
+    assert_eq!(counter.load(Ordering::SeqCst), 0);
+
+    // Overlapping shared borrows: dispose waits until the LAST shared borrow drops.
+    let g1 = acquire_native_borrow_with_env(env, ptr, false).unwrap();
+    let g2 = acquire_native_borrow_with_env(env, ptr, false).unwrap();
+    assert!(schedule_or_defer_dispose(env, ptr, false, count_finalize));
+    assert_eq!(counter.load(Ordering::SeqCst), 0);
+    drop(g1);
+    assert_eq!(counter.load(Ordering::SeqCst), 0);
+    drop(g2);
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
+
+    // Exclusive borrow (field getter/setter path): completes synchronously on guard drop.
+    let ex = acquire_native_borrow_with_env(env, ptr, true).unwrap();
+    assert!(schedule_or_defer_dispose(env, ptr, false, count_finalize));
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
+    drop(ex);
+    assert_eq!(counter.load(Ordering::SeqCst), 2);
+  }
+
+  #[test]
+  fn dispose_respects_class_instance_pins_and_barriers() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    unsafe fn count_finalize(_env: sys::napi_env, ptr: *mut c_void) -> Result<()> {
+      let counter = unsafe { &*(ptr as *const AtomicUsize) };
+      counter.fetch_add(1, Ordering::SeqCst);
+      Ok(())
+    }
+
+    let env = 0x2000usize as sys::napi_env;
+    let counter = AtomicUsize::new(0);
+    let ptr = (&counter as *const AtomicUsize).cast_mut().cast::<c_void>();
+
+    // Outside a collecting scope or behind a barrier: extraction is rejected.
+    let err = unsafe { pin_disposable_in_scope(env, ptr::null_mut(), ptr) }.unwrap_err();
+    assert_eq!(err.status, Status::InvalidArg);
+    assert!(!schedule_or_defer_dispose(env, ptr, false, count_finalize));
+
+    {
+      let mut scope = unsafe { NativeBorrowScope::new() };
+      unsafe { pin_disposable_in_scope(env, ptr::null_mut(), ptr) }.unwrap();
+      scope.finish();
+
+      {
+        let _barrier = NativeBorrowBarrier::new();
+        // Inside a barrier, `ClassInstance::from_napi_value` rejects extraction instead of
+        // silently leaving an unpinned handle or pinning into the outer scope.
+        let other = AtomicUsize::new(0);
+        let other_ptr = (&other as *const AtomicUsize).cast_mut().cast::<c_void>();
+        let err = unsafe { pin_disposable_in_scope(env, ptr::null_mut(), other_ptr) }.unwrap_err();
+        assert_eq!(err.status, Status::InvalidArg);
+        assert!(!schedule_or_defer_dispose(
+          env,
+          other_ptr,
+          false,
+          count_finalize
+        ));
+      }
+
+      // Deferred while the pinned scope is alive.
+      assert!(schedule_or_defer_dispose(env, ptr, false, count_finalize));
+      assert_eq!(counter.load(Ordering::SeqCst), 0);
+
+      let guard = defer_native_borrow_scope(scope, env);
+      assert_eq!(counter.load(Ordering::SeqCst), 0);
+      drop(guard);
+      assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    // Collecting scope dropped in-frame (e.g. arg conversion `?` early return) completes synchronously.
+    {
+      let scope = unsafe { NativeBorrowScope::new() };
+      unsafe { pin_disposable_in_scope(env, ptr::null_mut(), ptr) }.unwrap();
+      assert!(schedule_or_defer_dispose(env, ptr, false, count_finalize));
+      assert_eq!(counter.load(Ordering::SeqCst), 1);
+      drop(scope);
+      assert_eq!(counter.load(Ordering::SeqCst), 2);
+    }
+  }
+
+  #[test]
+  fn pin_disposable_in_active_frame_pins_barrier_and_collecting_scope() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    unsafe fn reentrant_finalize(_env: sys::napi_env, ptr: *mut c_void) -> Result<()> {
+      // Finalizer runs after barrier is popped from TLS and locks are released.
+      let _inner = NativeBorrowBarrier::new();
+      let reentrant = acquire_native_borrow(ptr, true).unwrap();
+      let counter = unsafe { &*(ptr as *const AtomicUsize) };
+      counter.fetch_add(1, Ordering::SeqCst);
+      drop(reentrant);
+      Ok(())
+    }
+
+    let env = 0x2000usize as sys::napi_env;
+    let counter = AtomicUsize::new(0);
+    let ptr = (&counter as *const AtomicUsize).cast_mut().cast::<c_void>();
+
+    // Empty stack is rejected.
+    let err = unsafe { pin_disposable_in_active_frame(env, ptr::null_mut(), ptr) }.unwrap_err();
+    assert_eq!(err.status, Status::InvalidArg);
+
+    // Active barrier pins the instance and runs deferred finalize synchronously on barrier drop.
+    {
+      let barrier = NativeBorrowBarrier::new();
+      unsafe { pin_disposable_in_active_frame(env, ptr::null_mut(), ptr) }.unwrap();
+      assert!(schedule_or_defer_dispose(
+        env,
+        ptr,
+        false,
+        reentrant_finalize
+      ));
+      assert_eq!(counter.load(Ordering::SeqCst), 0);
+      drop(barrier);
+      assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    // Active collecting scope pins into the collecting scope.
+    {
+      let mut scope = unsafe { NativeBorrowScope::new() };
+      unsafe { pin_disposable_in_active_frame(env, ptr::null_mut(), ptr) }.unwrap();
+      scope.finish();
+      assert!(schedule_or_defer_dispose(
+        env,
+        ptr,
+        false,
+        reentrant_finalize
+      ));
+      assert_eq!(counter.load(Ordering::SeqCst), 1);
+      let guard = defer_native_borrow_scope(scope, env);
+      drop(guard);
+      assert_eq!(counter.load(Ordering::SeqCst), 2);
+    }
+  }
+
+  #[test]
+  fn dispose_coordinates_live_refs_and_borrows_in_both_completion_orders() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    unsafe fn count_finalize(_env: sys::napi_env, ptr: *mut c_void) -> Result<()> {
+      let counter = unsafe { &*(ptr as *const AtomicUsize) };
+      counter.fetch_add(1, Ordering::SeqCst);
+      Ok(())
+    }
+
+    let env = 0x2000usize as sys::napi_env;
+    let counter = AtomicUsize::new(0);
+    let ptr = (&counter as *const AtomicUsize).cast_mut().cast::<c_void>();
+
+    // Order 1: borrow drops first, then last Reference<T> drops.
+    let borrow = acquire_native_borrow_with_env(env, ptr, false).unwrap();
+    assert!(schedule_or_defer_dispose(env, ptr, true, count_finalize));
+    drop(borrow);
+    assert_eq!(counter.load(Ordering::SeqCst), 0);
+    release_disposable_ref_count(env, ptr);
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
+
+    // Order 2: last Reference<T> drops first, then borrow drops.
+    let borrow = acquire_native_borrow_with_env(env, ptr, false).unwrap();
+    assert!(schedule_or_defer_dispose(env, ptr, true, count_finalize));
+    release_disposable_ref_count(env, ptr);
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
+    drop(borrow);
+    assert_eq!(counter.load(Ordering::SeqCst), 2);
+
+    // Reference-only hold (no active borrows): completes on last Reference<T> drop.
+    assert!(schedule_or_defer_dispose(env, ptr, true, count_finalize));
+    assert_eq!(counter.load(Ordering::SeqCst), 2);
+    release_disposable_ref_count(env, ptr);
+    assert_eq!(counter.load(Ordering::SeqCst), 3);
+  }
+
+  #[test]
+  fn deferred_finalize_can_reenter_same_borrow_shard_without_deadlocking() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    unsafe fn reentrant_finalize(_env: sys::napi_env, ptr: *mut c_void) -> Result<()> {
+      // Touch the exact same key (and thus exact same shard) while finalizing.
+      let reentrant = acquire_native_borrow(ptr, true).unwrap();
+      let counter = unsafe { &*(ptr as *const AtomicUsize) };
+      counter.fetch_add(1, Ordering::SeqCst);
+      drop(reentrant);
+      Ok(())
+    }
+
+    let env = 0x2000usize as sys::napi_env;
+    let counter = AtomicUsize::new(0);
+    let ptr = (&counter as *const AtomicUsize).cast_mut().cast::<c_void>();
+
+    // Via standalone NativeBorrowGuard drop:
+    let guard = acquire_native_borrow_with_env(env, ptr, true).unwrap();
+    assert!(schedule_or_defer_dispose(
+      env,
+      ptr,
+      false,
+      reentrant_finalize
+    ));
+    drop(guard);
+    assert_eq!(counter.load(Ordering::SeqCst), 1);
+
+    // Via NativeBorrowScope deferred release:
+    let mut scope = unsafe { NativeBorrowScope::new() };
+    register_native_borrow(ptr, false).unwrap();
+    scope.finish();
+    assert!(schedule_or_defer_dispose(
+      env,
+      ptr,
+      false,
+      reentrant_finalize
+    ));
+    let defer_guard = defer_native_borrow_scope(scope, env);
+    drop(defer_guard);
+    assert_eq!(counter.load(Ordering::SeqCst), 2);
+
+    // Via Reference<T> release:
+    assert!(schedule_or_defer_dispose(
+      env,
+      ptr,
+      true,
+      reentrant_finalize
+    ));
+    release_disposable_ref_count(env, ptr);
+    assert_eq!(counter.load(Ordering::SeqCst), 3);
   }
 }

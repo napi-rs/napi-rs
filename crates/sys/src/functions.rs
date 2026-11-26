@@ -841,6 +841,25 @@ mod experimental {
 #[cfg(feature = "experimental")]
 pub use experimental::*;
 
+#[cfg(target_family = "wasm")]
+mod emnapi {
+  use std::os::raw::c_void;
+
+  use super::super::types::*;
+
+  extern "C" {
+    pub fn emnapi_create_arraybuffer_copy(
+      env: napi_env,
+      data: *const c_void,
+      byte_length: usize,
+      result: *mut napi_value,
+    ) -> napi_status;
+  }
+}
+
+#[cfg(target_family = "wasm")]
+pub use emnapi::*;
+
 pub use napi1::*;
 #[cfg(feature = "napi10")]
 pub use napi10::*;

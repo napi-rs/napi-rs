@@ -354,3 +354,138 @@ test.skipIf(!isThreadlessWasiBufferTest)(
     }
   },
 )
+
+// Regression: on wasm, `ArrayBuffer::copy_from`, `*ArraySlice::copy_from`, and
+// `Uint8ClampedSlice::copy_from` used to call `napi_create_arraybuffer` +
+// `emnapi_sync_memory`, which allocated a linear-memory mirror via `_malloc`
+// and relied on `FinalizationRegistry` to `_free` it. Using
+// `emnapi_create_arraybuffer_copy` with a lazy wasm data pointer keeps linear
+// memory flat when Rust never dereferences the copy, while still resolving
+// lazily when Rust reads it back.
+test.skipIf(!isThreadlessWasiBufferTest)(
+  'threadless ArrayBuffer and TypedArray slice copy_from do not allocate wasm mirror memory when unused in Rust',
+  async (t) => {
+    const wasmBytes = await readFile(
+      new URL('../example.wasm32-wasip1.wasm', import.meta.url),
+    )
+    const webAssembly = Reflect.get(globalThis, 'WebAssembly') as {
+      compile(bytes: Uint8Array): Promise<WebAssembly.Module>
+    }
+    const wasmModule = await webAssembly.compile(wasmBytes)
+    const deferred = await import(
+      new URL('../example.wasip1-deferred.js', import.meta.url).href
+    )
+    const instance = await deferred.createInstance(wasmModule)
+
+    try {
+      const { exports } = instance
+      const chunkBytes = 256 * 1024
+      const chunkU16 = chunkBytes / 2
+
+      // Warm up dlmalloc's arena for the temporary Rust `Vec` per type and check content.
+      const warmAb = exports.createArraybufferOfSize(chunkBytes)
+      t.true(warmAb instanceof ArrayBuffer)
+      t.is(warmAb.byteLength, chunkBytes)
+      const warmAbView = new Uint8Array(warmAb)
+      t.is(warmAbView[0], 0x5a)
+      t.is(warmAbView[chunkBytes - 1], 0x5a)
+
+      const warmU8 = exports.createUint8ArraySliceOfSize(chunkBytes)
+      t.true(warmU8 instanceof Uint8Array)
+      t.is(warmU8.length, chunkBytes)
+      t.is(warmU8[0], 0x5a)
+      t.is(warmU8[chunkBytes - 1], 0x5a)
+
+      const warmU16 = exports.createUint16ArraySliceOfSize(chunkU16)
+      t.true(warmU16 instanceof Uint16Array)
+      t.is(warmU16.length, chunkU16)
+      t.is(warmU16[0], 0x5a5a)
+      t.is(warmU16[chunkU16 - 1], 0x5a5a)
+
+      const warmClamped = exports.createUint8ClampedSliceOfSize(chunkBytes)
+      t.true(warmClamped instanceof Uint8ClampedArray)
+      t.is(warmClamped.length, chunkBytes)
+      t.is(warmClamped[0], 0x5a)
+      t.is(warmClamped[chunkBytes - 1], 0x5a)
+
+      // 0-byte copy_from paths stay safe without touching napi_get_*_info.
+      t.is(exports.createArraybufferOfSize(0).byteLength, 0)
+      t.is(exports.createUint8ArraySliceOfSize(0).length, 0)
+      t.is(exports.createUint16ArraySliceOfSize(0).length, 0)
+      t.is(exports.createUint8ClampedSliceOfSize(0).length, 0)
+
+      // Lazy deref read-back resolves correctly for non-empty and empty inputs.
+      t.deepEqual(
+        exports.arrayBufferCopyFromReadBack([1, 2, 3, 4]),
+        [1, 2, 3, 4],
+      )
+      t.deepEqual(exports.arrayBufferCopyFromReadBack([]), [])
+      t.deepEqual(
+        exports.uint8ArraySliceCopyFromReadBack([10, 20, 30, 40]),
+        [10, 20, 30, 40],
+      )
+      t.deepEqual(exports.uint8ArraySliceCopyFromReadBack([]), [])
+      t.deepEqual(
+        exports.uint16ArraySliceCopyFromReadBack([0x1234, 0xabcd, 0xffff]),
+        [0x1234, 0xabcd, 0xffff],
+      )
+      t.deepEqual(exports.uint16ArraySliceCopyFromReadBack([]), [])
+      t.deepEqual(
+        exports.uint8ClampedSliceCopyFromReadBack([0, 128, 255]),
+        [0, 128, 255],
+      )
+      t.deepEqual(exports.uint8ClampedSliceCopyFromReadBack([]), [])
+
+      // `assign_to_this` must eagerly resolve the lazy wasm pointer before
+      // extending the slice lifetime past the constructor's handle scope.
+      const assigned = new exports.AssignedTypedArraySlices(
+        [1, 2, 3, 4],
+        [10, 20, 255],
+      )
+      t.deepEqual(assigned.readU8(), [1, 2, 3, 4])
+      t.deepEqual(assigned.readClamped(), [10, 20, 255])
+      t.deepEqual(assigned.readEmptyU8(), [])
+      t.deepEqual(assigned.readEmptyClamped(), [])
+      t.deepEqual(Array.from(assigned.u8), [1, 2, 3, 4])
+      t.deepEqual(Array.from(assigned.clamped), [10, 20, 255])
+
+      const memoryBefore = exports.wasmMemorySizeBytes()
+      // Hold 48 MiB (4 kinds * 48 * 256 KiB) of returned ArrayBuffers and
+      // TypedArrays strongly in JS so FinalizationRegistry cannot run.
+      const held: Array<
+        ArrayBuffer | Uint8Array | Uint16Array | Uint8ClampedArray
+      > = []
+      for (let i = 0; i < 48; i++) {
+        const ab = exports.createArraybufferOfSize(chunkBytes)
+        const abView = new Uint8Array(ab)
+        t.is(abView[0], 0x5a)
+        t.is(abView[chunkBytes - 1], 0x5a)
+        held.push(ab)
+
+        const u8 = exports.createUint8ArraySliceOfSize(chunkBytes)
+        t.is(u8[0], 0x5a)
+        t.is(u8[chunkBytes - 1], 0x5a)
+        held.push(u8)
+
+        const u16 = exports.createUint16ArraySliceOfSize(chunkU16)
+        t.is(u16[0], 0x5a5a)
+        t.is(u16[chunkU16 - 1], 0x5a5a)
+        held.push(u16)
+
+        const clamped = exports.createUint8ClampedSliceOfSize(chunkBytes)
+        t.is(clamped[0], 0x5a)
+        t.is(clamped[chunkBytes - 1], 0x5a)
+        held.push(clamped)
+      }
+      const memoryAfter = exports.wasmMemorySizeBytes()
+      t.is(
+        memoryAfter,
+        memoryBefore,
+        `expected zero wasm memory growth across 48 MiB of retained ArrayBuffer/TypedArray copies (before=${memoryBefore}, after=${memoryAfter})`,
+      )
+      t.is(held.length, 192)
+    } finally {
+      instance.dispose()
+    }
+  },
+)

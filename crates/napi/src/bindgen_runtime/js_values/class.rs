@@ -116,6 +116,16 @@ impl<'env, T: 'env> ClassInstance<'env, T> {
     'this: 'env,
     U: FromNapiValue + JsValue<'this>,
   {
+    if crate::bindgen_runtime::is_disposable_class::<T>() {
+      return Err(crate::Error::new(
+        crate::Status::InvalidArg,
+        format!(
+          "Cannot extend the lifetime of disposable `ClassInstance<{}>` via `assign_to_this`; store `Reference<{}>` instead",
+          std::any::type_name::<T>(),
+          std::any::type_name::<T>()
+        ),
+      ));
+    }
     let name = CString::new(name)?;
     check_status!(
       unsafe {
@@ -149,6 +159,16 @@ impl<'env, T: 'env> ClassInstance<'env, T> {
     T: MaybeTypeTag,
     U: FromNapiValue + JsValue<'this>,
   {
+    if crate::bindgen_runtime::is_disposable_class::<T>() {
+      return Err(crate::Error::new(
+        crate::Status::InvalidArg,
+        format!(
+          "Cannot extend the lifetime of disposable `ClassInstance<{}>` via `assign_to_this_with_attributes`; store `Reference<{}>` instead",
+          std::any::type_name::<T>(),
+          std::any::type_name::<T>()
+        ),
+      ));
+    }
     let name = CString::new(name)?;
     let descriptor = sys::napi_property_descriptor {
       utf8name: name.as_ptr(),
@@ -204,11 +224,14 @@ where
 impl<'env, T: 'env + MaybeTypeTag> FromNapiValue for ClassInstance<'env, T> {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> crate::Result<Self> {
     let mut value = ptr::null_mut();
-    check_status!(
-      unsafe { sys::napi_unwrap(env, napi_val, &mut value) },
-      "Unwrap value [{}] from class failed",
-      type_name::<T>(),
-    )?;
+    let status = unsafe { sys::napi_unwrap(env, napi_val, &mut value) };
+    if status != sys::Status::napi_ok {
+      return Err(unsafe {
+        crate::bindgen_runtime::map_class_unwrap_error::<T>(env, napi_val, status, || {
+          format!("Unwrap value [{}] from class failed", type_name::<T>())
+        })
+      });
+    }
 
     // Reject a wrong-class / prototype-spoofed object before the blind cast.
     // The tag check is compiled only on napi8 NATIVE targets (the
@@ -219,6 +242,14 @@ impl<'env, T: 'env + MaybeTypeTag> FromNapiValue for ClassInstance<'env, T> {
       crate::bindgen_runtime::validate_type_tag(env, napi_val, &T::type_tag(), type_name::<T>())?;
     }
     check_class_identity::<T>(value, type_name::<T>)?;
+
+    // For disposable classes, pin the wrapped allocation in the active
+    // argument-conversion borrow scope so re-entrant `[Symbol.dispose]()` defers
+    // until the call finishes. Extraction outside generated callback argument
+    // conversion is rejected so no unpinned `ClassInstance` can escape.
+    if crate::bindgen_runtime::is_disposable_class::<T>() {
+      unsafe { crate::bindgen_runtime::pin_disposable_in_scope(env, napi_val, value)? };
+    }
 
     let value = unsafe { Box::from_raw(value as *mut T) };
     Ok(Self {
@@ -256,18 +287,41 @@ pub trait JavaScriptClassExt: Sized {
   fn instance_of<'env, V: JsValue<'env>>(env: &Env, value: &V) -> Result<bool>;
 }
 
-/// Drop a class value whose raw pointer was produced by `Box::into_raw` but was
-/// never adopted by `napi_wrap` (so no finalizer will ever reclaim it).
+/// Heap-allocate a wrapped class value, substituting a unique properly-aligned
+/// placeholder allocation for zero-sized types so distinct ZST instances never
+/// collide on the dangling pointer in `REFERENCE_MAP` or `NATIVE_BORROWS` and
+/// remain properly aligned for `Box::from_raw::<T>` even when `align_of::<T>() > 1`.
+#[doc(hidden)]
+pub fn alloc_class_value<T>(val: T) -> *mut T {
+  if std::mem::size_of::<T>() == 0 {
+    std::mem::forget(val);
+    let align = std::mem::align_of::<T>().max(1);
+    let layout =
+      std::alloc::Layout::from_size_align(align, align).expect("valid ZST placeholder layout");
+    let ptr = unsafe { std::alloc::alloc(layout) };
+    if ptr.is_null() {
+      std::alloc::handle_alloc_error(layout);
+    }
+    ptr.cast::<T>()
+  } else {
+    Box::into_raw(Box::new(val))
+  }
+}
+
+/// Drop a class value whose raw pointer was produced by `alloc_class_value` or
+/// `Box::into_raw` but was never adopted by `napi_wrap` (so no finalizer will
+/// ever reclaim it).
 ///
 /// Zero-sized classes are special: `Box::into_raw` of a ZST yields the dangling
-/// pointer, which callers may have replaced with a 1-byte heap placeholder so
-/// distinct instances get distinct `REFERENCE_MAP` keys. Both forms are handled.
+/// pointer, which `alloc_class_value` (or older `napi-derive` code) replaces
+/// with a heap placeholder so distinct instances get distinct `REFERENCE_MAP`
+/// keys. Both forms are handled.
 ///
 /// # Safety
 ///
-/// `wrapped_value` must come from `Box::<T>::into_raw` (or be the 1-byte
-/// placeholder substituted for a ZST `T`) and must not have been adopted by a
-/// finalizer.
+/// `wrapped_value` must come from `alloc_class_value::<T>` / `Box::<T>::into_raw`
+/// (or be the 1-byte placeholder substituted for an align-1 ZST `T`) and must
+/// not have been adopted by a finalizer.
 pub(crate) unsafe fn drop_unadopted_class_value<T>(wrapped_value: *mut std::ffi::c_void) {
   if std::mem::size_of::<T>() == 0 {
     unsafe { ptr::drop_in_place(ptr::NonNull::<T>::dangling().as_ptr()) };
@@ -277,19 +331,28 @@ pub(crate) unsafe fn drop_unadopted_class_value<T>(wrapped_value: *mut std::ffi:
   }
 }
 
-/// Free the 1-byte heap placeholder that stands in for a zero-sized class
-/// value. Reconstructing a `Box<T>` for a ZST never deallocates, so the
-/// placeholder must be released separately. No-op for non-ZST `T` and for the
+/// Free the heap placeholder that stands in for a zero-sized class value.
+/// Reconstructing a `Box<T>` for a ZST never deallocates, so the placeholder
+/// must be released separately. No-op for non-ZST `T`, null pointers, and the
 /// unsubstituted dangling pointer.
+///
+/// For `align_of::<T>() == 1`, `Layout::from_size_align(1, 1)` matches the
+/// `Box<u8>` placeholder emitted by older `napi-derive` versions.
 ///
 /// # Safety
 ///
-/// For a ZST `T`, `wrapped_value` must be either `NonNull::<T>::dangling()` or
-/// a live placeholder allocated as a `Box<u8>`-layout value.
+/// For a ZST `T`, `wrapped_value` must be either null, `NonNull::<T>::dangling()`,
+/// or a live placeholder allocated with `Layout::from_size_align(align, align)`
+/// (where `align = align_of::<T>().max(1)`).
 pub(crate) unsafe fn free_empty_class_placeholder<T>(wrapped_value: *mut std::ffi::c_void) {
-  if std::mem::size_of::<T>() == 0 && wrapped_value != ptr::NonNull::<T>::dangling().as_ptr().cast()
+  if std::mem::size_of::<T>() == 0
+    && !wrapped_value.is_null()
+    && wrapped_value != ptr::NonNull::<T>::dangling().as_ptr().cast()
   {
-    drop(unsafe { Box::from_raw(wrapped_value.cast::<u8>()) });
+    let align = std::mem::align_of::<T>().max(1);
+    let layout =
+      std::alloc::Layout::from_size_align(align, align).expect("valid ZST placeholder layout");
+    unsafe { std::alloc::dealloc(wrapped_value.cast::<u8>(), layout) };
   }
 }
 
@@ -398,4 +461,45 @@ pub unsafe fn new_instance<T: 'static + ObjectFinalize + MaybeTypeTag>(
   }
 
   Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+  use std::sync::atomic::{AtomicUsize, Ordering};
+
+  use super::*;
+
+  static ALIGNED_ZST_DROPS: AtomicUsize = AtomicUsize::new(0);
+
+  #[repr(align(16))]
+  struct AlignedZst;
+
+  impl Drop for AlignedZst {
+    fn drop(&mut self) {
+      ALIGNED_ZST_DROPS.fetch_add(1, Ordering::SeqCst);
+    }
+  }
+
+  #[test]
+  fn alloc_class_value_allocates_distinct_aligned_zst_placeholders() {
+    let before = ALIGNED_ZST_DROPS.load(Ordering::SeqCst);
+    let p1 = alloc_class_value(AlignedZst);
+    let p2 = alloc_class_value(AlignedZst);
+
+    assert!(!p1.is_null());
+    assert!(!p2.is_null());
+    assert_ne!(p1, p2);
+    assert_ne!(p1, ptr::NonNull::<AlignedZst>::dangling().as_ptr());
+    assert_eq!((p1 as usize) % std::mem::align_of::<AlignedZst>(), 0);
+    assert_eq!((p2 as usize) % std::mem::align_of::<AlignedZst>(), 0);
+    // `alloc_class_value` must not drop the ZST prematurely.
+    assert_eq!(ALIGNED_ZST_DROPS.load(Ordering::SeqCst), before);
+
+    unsafe {
+      drop(Box::from_raw(p1));
+      free_empty_class_placeholder::<AlignedZst>(p1.cast());
+      drop_unadopted_class_value::<AlignedZst>(p2.cast());
+    }
+    assert_eq!(ALIGNED_ZST_DROPS.load(Ordering::SeqCst), before + 2);
+  }
 }

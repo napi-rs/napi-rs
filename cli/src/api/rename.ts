@@ -19,6 +19,7 @@ import { isNil, omitBy, pick } from 'es-toolkit'
 import { applyDefaultRenameOptions, type RenameOptions } from '../def/rename.js'
 import {
   commitFileSystemTransaction,
+  parseWasiArtifactMetadata,
   readConfig,
   readFileAsync,
   resolvePackageReconciliationPaths,
@@ -31,7 +32,6 @@ import {
   withPackageFileSystemReconciliation,
 } from '../utils/index.js'
 
-const WASI_ARTIFACT_METADATA_PREFIX = '// napi-rs-artifact-metadata:'
 const SCOPED_PACKAGE_PATTERN = /^(?:@([^/]+?)\/)?([^/]+?)$/
 const EXCLUDED_PACKAGE_NAMES = new Set(['node_modules', 'favicon.ico'])
 const WINDOWS_RESERVED_FILENAME =
@@ -1228,24 +1228,14 @@ async function prepareManagedPackageReadme(
 }
 
 function managedRootEntries(content: string) {
-  const firstLine = content.split(/\r?\n/, 1)[0]
-  if (!firstLine.startsWith(WASI_ARTIFACT_METADATA_PREFIX)) {
-    return []
-  }
   try {
-    const metadata = JSON.parse(
-      firstLine.slice(WASI_ARTIFACT_METADATA_PREFIX.length),
-    ) as {
-      rootEntry?: unknown
-      managedRootEntries?: unknown
+    const metadata = parseWasiArtifactMetadata(content)
+    if (!metadata) {
+      return []
     }
     return [
-      ...(typeof metadata.rootEntry === 'string' ? [metadata.rootEntry] : []),
-      ...(Array.isArray(metadata.managedRootEntries)
-        ? metadata.managedRootEntries.filter(
-            (entry): entry is string => typeof entry === 'string',
-          )
-        : []),
+      ...(metadata.rootEntry ? [metadata.rootEntry] : []),
+      ...metadata.managedRootEntries,
     ]
   } catch {
     return []

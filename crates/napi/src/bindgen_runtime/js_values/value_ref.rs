@@ -28,6 +28,9 @@ pub(crate) struct RefEntry {
   /// The class wrapped at this address, see `class_identity.rs`.
   #[cfg_attr(all(feature = "napi8", not(target_family = "wasm")), allow(dead_code))]
   pub(crate) class_id: ClassId,
+  /// Set when `[Symbol.dispose]()` detaches the JS wrapper while active borrows,
+  /// `ClassInstance` pins, or `Reference<T>` handles defer destruction.
+  pub(crate) disposed: bool,
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -42,6 +45,7 @@ pub(crate) fn add_ref(
       let entry = RefEntry {
         info: value,
         class_id,
+        disposed: false,
       };
       if let Some(RefEntry {
         info: (_, previous_ref, previous_rc),
@@ -98,6 +102,12 @@ impl<T> Drop for Reference<T> {
         "Reference unref failed, status code: {}",
         crate::Status::from(status)
       );
+      if rc_strong_count == 2 && crate::bindgen_runtime::is_disposable_class::<T>() {
+        crate::bindgen_runtime::release_disposable_ref_count(
+          self.env as crate::sys::napi_env,
+          self.raw.cast(),
+        );
+      }
     };
   }
 }
@@ -118,9 +128,19 @@ impl<T: 'static> Reference<T> {
     check_class_identity::<T>(t, std::any::type_name::<T>)?;
     if let Some(RefEntry {
       info: (wrapped_value, napi_ref, finalize_callbacks_ptr),
+      disposed,
       ..
     }) = REFERENCE_MAP.with(|cell| cell.borrow_mut(|map| map.get(&t).copied()))
     {
+      if disposed {
+        let name = crate::bindgen_runtime::disposable_class_js_name::<T>()
+          .map(|s| s.trim_end_matches('\0'))
+          .unwrap_or_else(std::any::type_name::<T>);
+        return Err(Error::new(
+          Status::InvalidArg,
+          format!("Instance of `{name}` has already been disposed"),
+        ));
+      }
       let mut ref_count = 0;
       check_status!(
         unsafe { crate::sys::napi_reference_ref(env, napi_ref, &mut ref_count) },
@@ -162,11 +182,17 @@ impl<T: 'static + MaybeTypeTag> FromNapiValue for Reference<T> {
     napi_val: crate::sys::napi_value,
   ) -> Result<Self> {
     let mut value = ptr::null_mut();
-    check_status!(
-      unsafe { crate::sys::napi_unwrap(env, napi_val, &mut value) },
-      "Unwrap value [{}] from class Reference failed",
-      std::any::type_name::<T>(),
-    )?;
+    let status = unsafe { crate::sys::napi_unwrap(env, napi_val, &mut value) };
+    if status != crate::sys::Status::napi_ok {
+      return Err(unsafe {
+        crate::bindgen_runtime::map_class_unwrap_error::<T>(env, napi_val, status, || {
+          format!(
+            "Unwrap value [{}] from class Reference failed",
+            std::any::type_name::<T>()
+          )
+        })
+      });
+    }
 
     // Reject a wrong-class / prototype-spoofed object before adopting it as a
     // `Reference<T>`. Compiled only on napi8 NATIVE targets (the `T: MaybeTypeTag`
@@ -262,7 +288,7 @@ impl<T> Clone for WeakReference<T> {
 
 impl<T: 'static> ToNapiValue for WeakReference<T> {
   unsafe fn to_napi_value(env: crate::sys::napi_env, val: Self) -> Result<crate::sys::napi_value> {
-    if Weak::strong_count(&val.finalize_callbacks) == 0 {
+    if !val.is_alive() {
       return Err(Error::new(
         Status::GenericFailure,
         format!(
@@ -281,7 +307,19 @@ impl<T: 'static> ToNapiValue for WeakReference<T> {
 }
 
 impl<T: 'static> WeakReference<T> {
+  fn is_alive(&self) -> bool {
+    if Weak::strong_count(&self.finalize_callbacks) == 0 {
+      return false;
+    }
+    let ptr = self.raw.cast::<c_void>();
+    REFERENCE_MAP
+      .with(|cell| cell.borrow_mut(|map| map.get(&ptr).is_some_and(|entry| !entry.disposed)))
+  }
+
   pub fn upgrade(&self, env: Env) -> Result<Option<Reference<T>>> {
+    if !self.is_alive() {
+      return Ok(None);
+    }
     if let Some(finalize_callbacks) = self.finalize_callbacks.upgrade() {
       let mut ref_count = 0;
       check_status!(
@@ -299,16 +337,38 @@ impl<T: 'static> WeakReference<T> {
     }
   }
 
+  /// Returns a shared reference to the underlying native value if still alive.
+  ///
+  /// # Panics
+  ///
+  /// Panics for `#[napi(disposable)]` classes because returning `&T` without
+  /// pinning cannot prevent re-entrant `[Symbol.dispose]()` from freeing `T`
+  /// while the reference is live. Call [`WeakReference::upgrade`] instead.
   pub fn get(&self) -> Option<&T> {
-    if Weak::strong_count(&self.finalize_callbacks) == 0 {
+    assert!(
+      !crate::bindgen_runtime::is_disposable_class::<T>(),
+      "WeakReference::get is not supported for #[napi(disposable)] classes; call WeakReference::upgrade(env) instead"
+    );
+    if !self.is_alive() {
       None
     } else {
       Some(unsafe { Box::leak(Box::from_raw(self.raw)) })
     }
   }
 
+  /// Returns an exclusive reference to the underlying native value if still alive.
+  ///
+  /// # Panics
+  ///
+  /// Panics for `#[napi(disposable)]` classes because returning `&mut T` without
+  /// pinning cannot prevent re-entrant `[Symbol.dispose]()` from freeing `T`
+  /// while the reference is live. Call [`WeakReference::upgrade`] instead.
   pub fn get_mut(&mut self) -> Option<&mut T> {
-    if Weak::strong_count(&self.finalize_callbacks) == 0 {
+    assert!(
+      !crate::bindgen_runtime::is_disposable_class::<T>(),
+      "WeakReference::get_mut is not supported for #[napi(disposable)] classes; call WeakReference::upgrade(env) instead"
+    );
+    if !self.is_alive() {
       None
     } else {
       Some(unsafe { Box::leak(Box::from_raw(self.raw)) })
