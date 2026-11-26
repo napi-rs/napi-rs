@@ -34,7 +34,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
 
       # Docker backend: GitHub-hosted runners have Docker but no /dev/kvm (so the
       # Firecracker backend is unavailable), and Docker writes the audit
@@ -79,7 +79,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'yarn'
 
       - name: Install
@@ -311,7 +311,7 @@ jobs:
         uses: actions/setup-node@v7
         if: matrix.settings.target == 'i686-pc-windows-msvc'
         with:
-          node-version: 22
+          node-version: 26
           architecture: 'x86'
 
       - name: Unit tests
@@ -420,7 +420,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'yarn'
 
       - name: Setup OpenHarmony SDK
@@ -474,7 +474,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'yarn'
 
       - name: Install
@@ -529,7 +529,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'yarn'
 
       - name: Install
@@ -627,7 +627,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'yarn'
       - uses: actions/download-artifact@v8
         with:
@@ -684,7 +684,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 26
           cache: 'yarn'
 
       - name: Install
@@ -734,7 +734,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'yarn'
 
       - name: Install
@@ -818,7 +818,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'yarn'
 
       - name: Install
@@ -893,7 +893,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'yarn'
       - name: 'Install dependencies'
         run: yarn install --mode=skip-build --immutable
@@ -1018,7 +1018,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'yarn'
           cache-dependency-path: 'yarn.lock'
       - name: Install Rust
@@ -1111,7 +1111,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'yarn'
           cache-dependency-path: 'yarn.lock'
       - name: Install Rust
@@ -1151,7 +1151,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'yarn'
           cache-dependency-path: 'yarn.lock'
       - name: Install Rust
@@ -1213,7 +1213,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'yarn'
           cache-dependency-path: 'yarn.lock'
       - name: Install Rust
@@ -1247,7 +1247,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'yarn'
           cache-dependency-path: 'yarn.lock'
       - name: Install
@@ -1318,7 +1318,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'yarn'
           cache-dependency-path: 'yarn.lock'
       - name: Install
@@ -1386,7 +1386,7 @@ jobs:
       - name: Setup node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'yarn'
       - name: Install
         uses: dtolnay/rust-toolchain@stable
@@ -1426,7 +1426,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'yarn'
       - name: Publish
         run: |
