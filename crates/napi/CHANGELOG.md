@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.16.4](https://github.com/napi-rs/napi-rs/compare/napi-v3.16.3...napi-v3.16.4) - 2026-11-26
+
+### Other
+
+- *(napi)* lazily resolve BufferSlice data pointer on wasm ([#3738](https://github.com/napi-rs/napi-rs/pull/3738))
+
 ## [3.16.3](https://github.com/napi-rs/napi-rs/compare/napi-v3.16.2...napi-v3.16.3) - 2026-11-23
 
 ### Fixed
