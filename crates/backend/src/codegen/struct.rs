@@ -160,7 +160,9 @@ fn gen_napi_value_map_impl(
     #[automatically_derived]
     impl napi::bindgen_prelude::TypeTag for #name {
       fn type_tag() -> napi::bindgen_prelude::sys::napi_type_tag {
-        #type_tag_body
+        // A const item makes the compiler evaluate the hash once, at compile time.
+        const TYPE_TAG: napi::bindgen_prelude::sys::napi_type_tag = #type_tag_body;
+        TYPE_TAG
       }
     }
 
