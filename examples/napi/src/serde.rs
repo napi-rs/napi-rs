@@ -32,6 +32,11 @@ fn test_serde_roundtrip(data: Value) -> Value {
 }
 
 #[napi]
+fn test_serde_value_to_string(data: Value) -> String {
+  data.to_string()
+}
+
+#[napi]
 fn make_deep_serde_value(depth: u32) -> Value {
   let mut value = Value::Null;
   for _ in 0..depth {

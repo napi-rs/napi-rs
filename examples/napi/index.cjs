@@ -1406,6 +1406,7 @@ module.exports.testSerdeJsonFromJs = nativeBinding.testSerdeJsonFromJs
 module.exports.testSerdeNumberFromJs = nativeBinding.testSerdeNumberFromJs
 module.exports.testSerdeRoundtrip = nativeBinding.testSerdeRoundtrip
 module.exports.testSerdeU128FromJs = nativeBinding.testSerdeU128FromJs
+module.exports.testSerdeValueToString = nativeBinding.testSerdeValueToString
 module.exports.testUtf8Methods = nativeBinding.testUtf8Methods
 module.exports.testWorkers = nativeBinding.testWorkers
 module.exports.threadsafeFunctionBuildThrowErrorWithStatus = nativeBinding.threadsafeFunctionBuildThrowErrorWithStatus
