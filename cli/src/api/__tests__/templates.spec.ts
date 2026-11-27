@@ -365,29 +365,65 @@ function loadCjsBindingOn(
   platform: string,
   arch: string,
   available: string[],
+  failures: Record<string, Error> = {},
+  packageVersions: Record<string, string> = {},
+  env: Record<string, string> = {},
 ) {
   const attempted: string[] = []
   const binding = { sum: () => 3 }
-  const fakeRequire = (id: string) => {
-    if (id === 'fs') {
-      return {
-        readFileSync: () => {
-          throw new Error('ENOENT')
-        },
+  const fakeRequire = Object.assign(
+    (id: string) => {
+      if (id === 'fs') {
+        return {
+          readFileSync: () => {
+            throw new Error('ENOENT')
+          },
+        }
       }
-    }
-    attempted.push(id)
-    if (available.includes(id)) {
-      return binding
-    }
-    throw new Error(`Cannot find module '${id}'`)
-  }
+      const packageJsonSuffix = '/package.json'
+      if (id.endsWith(packageJsonSuffix)) {
+        const version = packageVersions[id.slice(0, -packageJsonSuffix.length)]
+        if (version !== undefined) {
+          return { version }
+        }
+      }
+      attempted.push(id)
+      const failure = failures[id]
+      if (failure) {
+        throw failure
+      }
+      if (available.includes(id)) {
+        return binding
+      }
+      throw Object.assign(new Error(`Cannot find module '${id}'`), {
+        code: 'MODULE_NOT_FOUND',
+      })
+    },
+    {
+      resolve: (id: string) => {
+        const packageJsonSuffix = '/package.json'
+        const target = id.endsWith(packageJsonSuffix)
+          ? id.slice(0, -packageJsonSuffix.length)
+          : id
+        if (
+          available.includes(target) ||
+          failures[target] ||
+          packageVersions[target] !== undefined
+        ) {
+          return `/resolved/${id}`
+        }
+        throw Object.assign(new Error(`Cannot find module '${id}'`), {
+          code: 'MODULE_NOT_FOUND',
+        })
+      },
+    },
+  )
   const module = { exports: {} as Record<string, unknown> }
   new Function('require', 'module', 'exports', 'process', code)(
     fakeRequire,
     module,
     module.exports,
-    { platform, arch, env: {} },
+    { platform, arch, env },
   )
   return { exports: module.exports, attempted }
 }
@@ -415,6 +451,150 @@ for (const arch of ['x64', 'arm64']) {
     t.is((exports.sum as () => number)(), 3)
   })
 }
+
+test('createCjsBinding reports the real load failure instead of npm optional-dependency advice', (t) => {
+  const code = createCjsBinding('test', '@scope/test', ['sum'])
+  const loadFailure = Object.assign(
+    new Error('Cannot load native addon because loading addons is disabled.'),
+    { code: 'ERR_DLOPEN_DISABLED' },
+  )
+  const error = t.throws(() =>
+    loadCjsBindingOn(code, 'linux', 'x64', ['@scope/test-linux-x64-gnu'], {
+      '@scope/test-linux-x64-gnu': loadFailure,
+    }),
+  ) as Error & {
+    code?: string
+    cause?: (Error & { code?: string; cause?: unknown }) | null
+  }
+  t.is(error.code, 'ERR_DLOPEN_DISABLED')
+  t.true(error.message.startsWith('Cannot load native binding.'))
+  t.true(error.message.includes('loading addons is disabled'))
+  t.false(
+    error.message.includes('npm has a bug related to optional dependencies'),
+  )
+  const causeCodes: Array<string | undefined> = []
+  let cause: unknown = error.cause
+  while (cause !== null && typeof cause === 'object') {
+    causeCodes.push((cause as { code?: string }).code)
+    cause = (cause as { cause?: unknown }).cause
+  }
+  t.true(causeCodes.includes('ERR_DLOPEN_DISABLED'))
+})
+
+test('createCjsBinding keeps a one-shot load failure code in the cause chain', (t) => {
+  const code = createCjsBinding('test', '@scope/test', ['sum'])
+  let reads = 0
+  const failure = new Error('one-shot code')
+  Object.defineProperty(failure, 'code', {
+    get() {
+      reads += 1
+      if (reads === 1) {
+        return 'ERR_DLOPEN_FAILED'
+      }
+      throw new Error('code read twice')
+    },
+  })
+  const error = t.throws(() =>
+    loadCjsBindingOn(code, 'linux', 'x64', ['@scope/test-linux-x64-gnu'], {
+      '@scope/test-linux-x64-gnu': failure,
+    }),
+  ) as Error & {
+    code?: string
+  }
+  t.is(error.code, 'ERR_DLOPEN_FAILED')
+  const causeCodes: Array<string | undefined> = []
+  let cause: unknown = error.cause
+  while (cause !== null && typeof cause === 'object') {
+    causeCodes.push((cause as { code?: string }).code)
+    cause = (cause as { cause?: unknown }).cause
+  }
+  t.true(causeCodes.includes('ERR_DLOPEN_FAILED'))
+})
+
+test('createCjsBinding still explains the npm optional-dependency bug when nothing resolved', (t) => {
+  const code = createCjsBinding('test', '@scope/test', ['sum'])
+  const error = t.throws(() =>
+    loadCjsBindingOn(code, 'linux', 'x64', []),
+  ) as Error & {
+    code?: string
+  }
+  t.true(
+    error.message.includes('npm has a bug related to optional dependencies'),
+  )
+  t.is(error.code, undefined)
+})
+
+test('createCjsBinding reports an enforced native package version mismatch', (t) => {
+  const code = createCjsBinding('test', '@scope/test', ['sum'], '1.0.0')
+  const error = t.throws(() =>
+    loadCjsBindingOn(
+      code,
+      'linux',
+      'x64',
+      ['@scope/test-linux-x64-gnu'],
+      {},
+      { '@scope/test-linux-x64-gnu': '0.9.0' },
+      { NAPI_RS_ENFORCE_VERSION_CHECK: '1' },
+    ),
+  ) as Error & {
+    code?: string
+  }
+  t.is(error.code, 'ERR_NAPI_RS_VERSION_MISMATCH')
+  t.true(error.message.includes('version mismatch, expected 1.0.0'))
+  t.false(
+    error.message.includes('npm has a bug related to optional dependencies'),
+  )
+})
+
+test('createCjsBinding reports an enforced WASI package version mismatch', (t) => {
+  const code = createCjsBinding(
+    'test',
+    '@scope/test',
+    ['sum'],
+    '1.0.0',
+    ['wasm32-wasi'],
+    './test',
+  )
+  const error = t.throws(() =>
+    loadCjsBindingOn(
+      code,
+      'linux',
+      'x64',
+      ['@scope/test-wasm32-wasi'],
+      {},
+      { '@scope/test-wasm32-wasi': '9.9.9' },
+      { NAPI_RS_ENFORCE_VERSION_CHECK: '1' },
+    ),
+  ) as Error & {
+    code?: string
+  }
+  t.is(error.code, 'ERR_NAPI_RS_VERSION_MISMATCH')
+  t.true(error.message.includes('WASI binding package version mismatch'))
+  t.false(
+    error.message.includes('npm has a bug related to optional dependencies'),
+  )
+})
+
+test('createCjsBinding keeps the npm message when a candidate error cannot be inspected', (t) => {
+  const code = createCjsBinding('test', '@scope/test', ['sum'])
+  const failure = new Error('uninspectable')
+  Object.defineProperty(failure, 'code', {
+    get() {
+      throw new Error('code getter failed')
+    },
+  })
+  const error = t.throws(() =>
+    loadCjsBindingOn(code, 'linux', 'x64', ['@scope/test-linux-x64-gnu'], {
+      '@scope/test-linux-x64-gnu': failure,
+    }),
+  ) as Error & {
+    code?: string
+  }
+  t.true(
+    error.message.includes('npm has a bug related to optional dependencies'),
+  )
+  t.is(error.code, undefined)
+})
 
 // `napi_prepare_wasm_env_cleanup` only *queues* the promise settlements of the
 // tasks it cancels: `napi_call_threadsafe_function` appends to the
