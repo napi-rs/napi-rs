@@ -2386,6 +2386,8 @@ export declare function testSerdeRoundtrip(data: any): any
 
 export declare function testSerdeU128FromJs(value: unknown): bigint
 
+export declare function testSerdeValueToString(data: any): string
+
 export declare function testUtf8Methods(s: string): Utf8MethodsResult
 
 export declare function testWorkers(amount: number, completeCallback: ((err: Error | null) => void)): void

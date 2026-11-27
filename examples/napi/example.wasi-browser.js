@@ -1970,6 +1970,7 @@ export const testSerdeJsonFromJs = __napiModule.exports.testSerdeJsonFromJs
 export const testSerdeNumberFromJs = __napiModule.exports.testSerdeNumberFromJs
 export const testSerdeRoundtrip = __napiModule.exports.testSerdeRoundtrip
 export const testSerdeU128FromJs = __napiModule.exports.testSerdeU128FromJs
+export const testSerdeValueToString = __napiModule.exports.testSerdeValueToString
 export const testUtf8Methods = __napiModule.exports.testUtf8Methods
 export const testWorkers = __napiModule.exports.testWorkers
 export const threadsafeFunctionBuildThrowErrorWithStatus = __napiModule.exports.threadsafeFunctionBuildThrowErrorWithStatus

@@ -191,6 +191,7 @@ import {
   receiveMutClassOrNumber,
   getStrFromObject,
   testSerdeRoundtrip,
+  testSerdeValueToString,
   makeDeepSerdeValue,
   testSerdeBigNumberPrecision,
   testSerdeBufferBytes,
@@ -1663,6 +1664,26 @@ test('serde-roundtrip', (t) => {
   t.is(testSerdeRoundtrip(1), 1)
   t.is(testSerdeRoundtrip(1.2), 1.2)
   t.is(testSerdeRoundtrip(-1), -1)
+  t.is(testSerdeRoundtrip(2 ** 32), 2 ** 32)
+  t.is(testSerdeRoundtrip(-(2 ** 31) - 1), -(2 ** 31) - 1)
+  t.is(testSerdeRoundtrip(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER)
+  t.is(testSerdeRoundtrip(Number.MIN_SAFE_INTEGER), Number.MIN_SAFE_INTEGER)
+  t.is(testSerdeRoundtrip(2 ** 53), 2 ** 53)
+  t.is(testSerdeRoundtrip(-(2 ** 53)), -(2 ** 53))
+
+  t.is(testSerdeValueToString(0), '0')
+  t.is(testSerdeValueToString(-0), '0')
+  t.is(testSerdeValueToString(2 ** 32 - 1), '4294967295')
+  t.is(testSerdeValueToString(2 ** 32), '4294967296')
+  t.is(testSerdeValueToString(-(2 ** 31)), '-2147483648')
+  t.is(testSerdeValueToString(-(2 ** 31) - 1), '-2147483649')
+  t.is(testSerdeValueToString(Number.MAX_SAFE_INTEGER), '9007199254740991')
+  t.is(testSerdeValueToString(Number.MIN_SAFE_INTEGER), '-9007199254740991')
+  for (const value of [2 ** 53, -(2 ** 53), 1e18, 1.5, Number.MIN_VALUE]) {
+    const serialized = testSerdeValueToString(value)
+    t.regex(serialized, /[.eE]/)
+    t.is(JSON.parse(serialized), value)
+  }
 
   t.deepEqual(testSerdeRoundtrip([1, 1.2, -1]), [1, 1.2, -1])
   t.deepEqual(testSerdeRoundtrip({ a: 1, b: 1.2, c: -1 }), {
