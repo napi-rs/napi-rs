@@ -2026,7 +2026,12 @@ fn erase_future<
   fut: Fut,
   resolver: Resolver,
 ) -> ErasedFuture {
-  let sendable_resolver = SendableResolver::new(resolver);
+  // SAFETY: the resolver is called on the JavaScript thread. As the function docs say, it is
+  // dropped uncalled on the thread that drops the future or completes it with an error, which
+  // can be a runtime thread, so a resolver that captures data which is not `Send` is still not
+  // fully covered here. Requiring `Resolver: Send` would close that, but it changes public
+  // signatures that forward a resolver here, such as `Env::spawn_future_with_callback`.
+  let sendable_resolver = unsafe { SendableResolver::new_unchecked(resolver) };
   Box::pin(async move {
     match fut.await {
       Ok(v) => Ok(Box::new(move |env| sendable_resolver.resolve(env, v)) as ErasedSettle),
