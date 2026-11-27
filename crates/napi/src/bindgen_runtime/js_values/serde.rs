@@ -334,10 +334,10 @@ impl FromNapiValue for Map<String, Value> {
   }
 }
 
+const MAX_SAFE_INT: i64 = (1 << 53) - 1;
+
 impl ToNapiValue for &Number {
   unsafe fn to_napi_value(env: sys::napi_env, n: Self) -> Result<sys::napi_value> {
-    #[cfg(feature = "napi6")]
-    const MAX_SAFE_INT: i64 = 9007199254740991i64; // 2 ^ 53 - 1
     if n.is_i64() {
       let n = n.as_i64().unwrap();
       #[cfg(feature = "napi6")]
@@ -373,32 +373,73 @@ impl ToNapiValue for Number {
   }
 }
 
+fn number_from_f64(n: f64) -> Option<Number> {
+  const MAX_SAFE_INT_F64: f64 = MAX_SAFE_INT as f64;
+  if n.trunc() == n && (-MAX_SAFE_INT_F64..=MAX_SAFE_INT_F64).contains(&n) {
+    Some(Number::from(n as i64))
+  } else {
+    Number::from_f64(n)
+  }
+}
+
 impl FromNapiValue for Number {
   unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
     let n = unsafe { f64::from_napi_value(env, napi_val)? };
-    // Try to auto-convert to integers
-    let n = if n.trunc() == n {
-      if n >= 0.0f64 && n <= u32::MAX as f64 {
-        // This can be represented as u32
-        Some(Number::from(n as u32))
-      } else if n < 0.0f64 && n >= i32::MIN as f64 {
-        Some(Number::from(n as i32))
-      } else {
-        // must be a float
-        Number::from_f64(n)
-      }
-    } else {
-      // must be a float
-      Number::from_f64(n)
-    };
-
-    let n = n.ok_or_else(|| {
+    number_from_f64(n).ok_or_else(|| {
       Error::new(
         Status::InvalidArg,
         "Failed to convert js number to serde_json::Number".to_owned(),
       )
-    })?;
+    })
+  }
+}
 
-    Ok(n)
+#[cfg(test)]
+mod number_from_f64_tests {
+  use super::{number_from_f64, Value, MAX_SAFE_INT};
+
+  #[test]
+  fn safe_integers_convert_to_integer_json_numbers() {
+    for value in [
+      0i64,
+      1,
+      -1,
+      i32::MIN as i64,
+      i32::MIN as i64 - 1,
+      u32::MAX as i64,
+      u32::MAX as i64 + 1,
+      MAX_SAFE_INT,
+      -MAX_SAFE_INT,
+    ] {
+      let n = number_from_f64(value as f64).unwrap();
+      assert_eq!(n.as_i64(), Some(value), "expected i64 for {value}");
+      assert_eq!(
+        serde_json::from_value::<i64>(Value::Number(n)).unwrap(),
+        value
+      );
+    }
+
+    let neg_zero = number_from_f64(-0.0).unwrap();
+    assert_eq!(neg_zero.as_u64(), Some(0));
+  }
+
+  #[test]
+  fn non_safe_and_fractional_numbers_convert_to_float_json_numbers() {
+    for value in [
+      (MAX_SAFE_INT + 1) as f64,
+      -((MAX_SAFE_INT + 1) as f64),
+      1e18,
+      1e300,
+      1.5,
+      1e-20,
+    ] {
+      let n = number_from_f64(value).unwrap();
+      assert!(n.is_f64(), "expected f64 for {value}");
+      assert!(serde_json::from_value::<i64>(Value::Number(n)).is_err());
+    }
+
+    for non_finite in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+      assert!(number_from_f64(non_finite).is_none());
+    }
   }
 }

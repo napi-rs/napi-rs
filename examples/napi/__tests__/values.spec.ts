@@ -1663,6 +1663,12 @@ test('serde-roundtrip', (t) => {
   t.is(testSerdeRoundtrip(1), 1)
   t.is(testSerdeRoundtrip(1.2), 1.2)
   t.is(testSerdeRoundtrip(-1), -1)
+  t.is(testSerdeRoundtrip(2 ** 32), 2 ** 32)
+  t.is(testSerdeRoundtrip(-(2 ** 31) - 1), -(2 ** 31) - 1)
+  t.is(testSerdeRoundtrip(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER)
+  t.is(testSerdeRoundtrip(Number.MIN_SAFE_INTEGER), Number.MIN_SAFE_INTEGER)
+  t.is(testSerdeRoundtrip(2 ** 53), 2 ** 53)
+  t.is(testSerdeRoundtrip(-(2 ** 53)), -(2 ** 53))
 
   t.deepEqual(testSerdeRoundtrip([1, 1.2, -1]), [1, 1.2, -1])
   t.deepEqual(testSerdeRoundtrip({ a: 1, b: 1.2, c: -1 }), {
